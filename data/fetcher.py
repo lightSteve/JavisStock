@@ -638,6 +638,65 @@ def get_us_stock_ohlcv(ticker: str, period: str = "6mo") -> pd.DataFrame:
 _SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "snapshots")
 
 
+def _is_market_closed(date: str) -> bool:
+    """주어진 날짜의 장이 마감됐는지 판단. 과거면 True, 오늘이면 16시 이후 True."""
+    today = datetime.date.today()
+    d = datetime.datetime.strptime(date, "%Y%m%d").date()
+    if d < today:
+        return True
+    if d == today and datetime.datetime.now().hour >= 16:
+        return True
+    return False
+
+
+def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5) -> pd.DataFrame:
+    """
+    스마트 데이터 로더:
+    1) 장 마감된 날짜 → 스냅샷 CSV가 있으면 즉시 로드 (~0.5초)
+    2) 스냅샷 없거나 장중 → API에서 fetch 후 장 마감이면 스냅샷 저장
+    """
+    # 1) 스냅샷 체크 (장 마감된 날짜만)
+    if _is_market_closed(date):
+        cached = load_daily_snapshot(date, market)
+        if not cached.empty and "종목명" in cached.columns:
+            return cached
+
+    # 2) API에서 fetch
+    ohlcv = get_market_ohlcv(date, market)
+    if ohlcv.empty:
+        return pd.DataFrame()
+
+    tickers_df = get_all_tickers(date, market).set_index("티커")
+    ohlcv = ohlcv.join(tickers_df[["종목명"]], how="left")
+
+    supply = get_accumulated_investor_trading(date, days=supply_days, market=market)
+    if not supply.empty:
+        supply.columns = [f"{c}_5일" for c in supply.columns]
+        ohlcv = ohlcv.join(supply, how="left")
+
+    sectors = get_sector_info(date, market)
+    if not sectors.empty:
+        ohlcv = ohlcv.join(sectors, how="left")
+
+    fill_cols = [c for c in ohlcv.columns if "5일" in c]
+    ohlcv[fill_cols] = ohlcv[fill_cols].fillna(0)
+
+    # 3) 장 마감됐으면 스냅샷 저장 (다음 조회부터 초고속 로드)
+    if _is_market_closed(date):
+        _save_full_snapshot(ohlcv, date, market)
+
+    return ohlcv
+
+
+def _save_full_snapshot(df: pd.DataFrame, date: str, market: str):
+    """종목명 + 수급 + 섹터 포함 완전한 스냅샷 저장."""
+    os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+    filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
+    df["스냅샷일자"] = date
+    df.to_csv(filepath, encoding="utf-8-sig")
+
+
+
 def save_daily_snapshot(date: str, market: str = "ALL") -> str:
     """
     당일 전종목 시세 + 수급 스냅샷을 CSV로 저장.

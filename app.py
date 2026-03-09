@@ -20,6 +20,7 @@ from data.fetcher import (
     get_latest_trading_date,
     save_daily_snapshot,
     list_available_snapshots,
+    smart_load_daily_data,
 )
 from analysis.screening import screen_by_supply, add_chart_status, run_full_screening, apply_technical_filters
 from components.sidebar import render_sidebar
@@ -164,24 +165,10 @@ top_n = config["top_n"]
 # 데이터 로딩 (캐시 활용)
 # ===========================================================================
 
-@st.cache_data(ttl=3600, show_spinner="📡 전종목 시세 데이터 수집 중...")
-def load_ohlcv(date: str, mkt: str):
-    return get_market_ohlcv(date, mkt)
-
-
-@st.cache_data(ttl=3600, show_spinner="📡 종목 정보 수집 중...")
-def load_tickers(date: str, mkt: str):
-    return get_all_tickers(date, mkt)
-
-
-@st.cache_data(ttl=3600, show_spinner="💰 수급 데이터 수집 중 (시간이 걸릴 수 있습니다)...")
-def load_supply(date: str, days: int, mkt: str):
-    return get_accumulated_investor_trading(date, days, mkt)
-
-
-@st.cache_data(ttl=3600, show_spinner="🏭 섹터 정보 수집 중...")
-def load_sectors(date: str, mkt: str):
-    return get_sector_info(date, mkt)
+@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
+def load_daily_data_cached(date: str, mkt: str, days: int) -> pd.DataFrame:
+    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용."""
+    return smart_load_daily_data(date, mkt, days)
 
 
 @st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
@@ -193,47 +180,16 @@ def run_screening(daily_data_json: str, date: str):
     return run_full_screening(daily_df, date)
 
 
-# --- 데이터 조합 ---
-def build_daily_data(date: str, mkt: str, days: int) -> pd.DataFrame:
-    """시세 + 수급 + 섹터를 결합한 종합 데이터 빌드."""
-    ohlcv = load_ohlcv(date, mkt)
-    if ohlcv.empty:
-        return pd.DataFrame()
-
-    tickers_df = load_tickers(date, mkt).set_index("티커")
-    ohlcv = ohlcv.join(tickers_df[["종목명"]], how="left")
-
-    supply = load_supply(date, days, mkt)
-    if not supply.empty:
-        supply.columns = [f"{c}_5일" for c in supply.columns]
-        ohlcv = ohlcv.join(supply, how="left")
-
-    sectors = load_sectors(date, mkt)
-    if not sectors.empty:
-        ohlcv = ohlcv.join(sectors, how="left")
-
-    fill_cols = [c for c in ohlcv.columns if "5일" in c]
-    ohlcv[fill_cols] = ohlcv[fill_cols].fillna(0)
-
-    return ohlcv
-
-
 # 로드 버튼
 if st.sidebar.button("🚀 데이터 로드 & 분석 시작", use_container_width=True, type="primary"):
     st.session_state["load_data"] = True
 
 if st.session_state.get("load_data"):
-    daily_df = build_daily_data(date_str, market, supply_days)
+    daily_df = load_daily_data_cached(date_str, market, supply_days)
 
     if daily_df.empty:
         st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
         st.stop()
-
-    # 자동 스냅샷 저장 (수급 데이터 장기 누적용)
-    try:
-        save_daily_snapshot(date_str, market)
-    except Exception:
-        pass  # 스냅샷 저장 실패해도 대시보드 이용에 지장 없음
 
     st.session_state["daily_df"] = daily_df
 
