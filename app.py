@@ -182,6 +182,8 @@ def run_screening(daily_data_json: str, date: str):
 
 # 로드 버튼
 if st.sidebar.button("🚀 데이터 로드 & 분석 시작", use_container_width=True, type="primary"):
+    load_daily_data_cached.clear()
+    run_screening.clear()
     st.session_state["load_data"] = True
 
 if st.session_state.get("load_data"):
