@@ -227,11 +227,22 @@ if st.session_state.get("load_data"):
     with search_col2:
         st.markdown("<br>", unsafe_allow_html=True)
         if search_picked:
-            # 괄호 안의 티커 추출
             _search_ticker = search_picked.split("(")[-1].rstrip(")")
             if st.button("📈 상세 보기", key="search_go", type="primary", use_container_width=True):
                 st.session_state["selected_ticker"] = _search_ticker
-                st.session_state["go_detail_tab"] = True
+                st.session_state["show_search_detail"] = _search_ticker
+
+    # ─── 검색 결과 상세 (인라인) ─────────────────────────────────
+    _detail_ticker = st.session_state.get("show_search_detail")
+    if _detail_ticker:
+        st.markdown("---")
+        _close_col1, _close_col2 = st.columns([6, 1])
+        with _close_col2:
+            if st.button("✖ 닫기", key="close_search_detail"):
+                st.session_state.pop("show_search_detail", None)
+                st.rerun()
+        render_detail_view(_detail_ticker, date_str)
+        st.markdown("---")
 
     # 시장 요약
     st.markdown("---")
