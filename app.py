@@ -209,8 +209,37 @@ if st.session_state.get("load_data"):
         unsafe_allow_html=True,
     )
 
+    # ─── 종목 검색 ─────────────────────────────────────────────────
+    _search_options = [""] + [
+        f"{row['종목명']} ({ticker})" 
+        for ticker, row in daily_df.iterrows() 
+        if pd.notna(row.get('종목명', ''))
+    ]
+    search_col1, search_col2 = st.columns([3, 1])
+    with search_col1:
+        search_picked = st.selectbox(
+            "🔍 종목 검색",
+            options=_search_options,
+            index=0,
+            placeholder="종목명 또는 티커를 입력하세요...",
+            key="stock_search",
+        )
+    with search_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if search_picked:
+            # 괄호 안의 티커 추출
+            _search_ticker = search_picked.split("(")[-1].rstrip(")")
+            if st.button("📈 상세 보기", key="search_go", type="primary", use_container_width=True):
+                st.session_state["selected_ticker"] = _search_ticker
+                st.session_state["go_detail_tab"] = True
+
     # 시장 요약
     st.markdown("---")
+    up_stocks = daily_df[daily_df["등락률"] > 0].copy()
+    down_stocks = daily_df[daily_df["등락률"] < 0].copy()
+    up_count = len(up_stocks)
+    down_count = len(down_stocks)
+
     summary_cols = st.columns(4)
     with summary_cols[0]:
         st.metric("📊 분석 종목 수", f"{len(daily_df):,}개")
@@ -218,11 +247,40 @@ if st.session_state.get("load_data"):
         avg_change = daily_df["등락률"].mean()
         st.metric("📉 평균 등락률", f"{avg_change:+.2f}%")
     with summary_cols[2]:
-        up_count = (daily_df["등락률"] > 0).sum()
         st.metric("🔴 상승 종목", f"{up_count:,}개")
     with summary_cols[3]:
-        down_count = (daily_df["등락률"] < 0).sum()
         st.metric("🔵 하락 종목", f"{down_count:,}개")
+
+    # ─── 상승 / 하락 종목 리스트 ────────────────────────────────────
+    list_col1, list_col2 = st.columns(2)
+    with list_col1:
+        with st.expander(f"🔴 상승 종목 {up_count}개 보기", expanded=False):
+            if not up_stocks.empty:
+                _up_display = up_stocks.sort_values("등락률", ascending=False).head(100)
+                _up_show = pd.DataFrame({
+                    "종목명": _up_display["종목명"] if "종목명" in _up_display.columns else _up_display.index,
+                    "종가": _up_display["종가"].apply(lambda x: f"{int(x):,}"),
+                    "등락률": _up_display["등락률"].apply(lambda x: f"+{x:.2f}%"),
+                    "거래량": _up_display["거래량"].apply(lambda x: f"{int(x):,}"),
+                })
+                _up_show.index = _up_display.index
+                st.dataframe(_up_show, use_container_width=True, height=400)
+            else:
+                st.info("상승 종목이 없습니다.")
+    with list_col2:
+        with st.expander(f"🔵 하락 종목 {down_count}개 보기", expanded=False):
+            if not down_stocks.empty:
+                _dn_display = down_stocks.sort_values("등락률", ascending=True).head(100)
+                _dn_show = pd.DataFrame({
+                    "종목명": _dn_display["종목명"] if "종목명" in _dn_display.columns else _dn_display.index,
+                    "종가": _dn_display["종가"].apply(lambda x: f"{int(x):,}"),
+                    "등락률": _dn_display["등락률"].apply(lambda x: f"{x:.2f}%"),
+                    "거래량": _dn_display["거래량"].apply(lambda x: f"{int(x):,}"),
+                })
+                _dn_show.index = _dn_display.index
+                st.dataframe(_dn_show, use_container_width=True, height=400)
+            else:
+                st.info("하락 종목이 없습니다.")
 
     # ===================================================================
     # 탭 구성: 섹터 히트맵 / 상승 종목 분석 / 오늘의 발굴 종목 / 종목 상세
