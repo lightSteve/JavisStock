@@ -239,9 +239,15 @@ def _render_supply_cards(
             name = r.get("종목명", ticker)
             price = int(r.get("종가", 0))
             change = r.get("등락률", 0)
-            inst = r.get("기관합계_5일", 0) / 1e8
-            frgn = r.get("외국인합계_5일", 0) / 1e8
-            indv = r.get("개인_5일", 0) / 1e8 if "개인_5일" in r.index else 0
+            _inst_v = r.get("기관합계_5일", 0)
+            _frgn_v = r.get("외국인합계_5일", 0)
+            _indv_v = r.get("개인_5일", 0) if "개인_5일" in r.index else 0
+            if pd.isna(_inst_v): _inst_v = 0
+            if pd.isna(_frgn_v): _frgn_v = 0
+            if pd.isna(_indv_v): _indv_v = 0
+            inst = _inst_v / 1e8
+            frgn = _frgn_v / 1e8
+            indv = _indv_v / 1e8
             sector = r.get("업종", "")
 
             # 수급 강도 바 (0~100%)
@@ -255,91 +261,50 @@ def _render_supply_cards(
             border = f"2px solid {color}" if is_selected else "1px solid #e2e8f0"
             bg = "#f8f7ff" if is_selected else "#ffffff"
 
-            # 기관/외국인 각 표시
             inst_sign = "+" if inst > 0 else ""
             frgn_sign = "+" if frgn > 0 else ""
-
-            # 수급 바 색상 (강도에 따라 투명도 조절)
-            bar_opacity = 0.2 + (strength / 100) * 0.6
-
+            indv_sign = "+" if indv > 0 else ""
+            indv_color = "#16a34a" if indv > 0 else "#dc2626"
             rank_num = idx + 1
 
+            strength_bar = (
+                f'<div style="margin-top:10px;">'
+                f'<div style="font-size:0.72em; color:#64748b; margin-bottom:3px;">'
+                f'수급 강도 {strength:.0f}%</div>'
+                f'<div style="background:#e2e8f0; border-radius:6px; height:8px; overflow:hidden;">'
+                f'<div style="width:{strength}%; height:100%; background:{color}; border-radius:6px;"></div>'
+                f'</div></div>'
+            )
+
+            supply_box = (
+                f'<div style="margin-top:10px; font-size:0.82em;">'
+                f'<span style="color:#2563eb; font-weight:700;">🏛️ {inst_sign}{inst:,.1f}억</span>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:#ea580c; font-weight:700;">🌍 {frgn_sign}{frgn:,.1f}억</span>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:{indv_color}; font-weight:700;">👤 {indv_sign}{indv:,.1f}억</span>'
+                f'</div>'
+            )
+
+            card_html = (
+                f'<div style="background:{bg}; border-radius:14px; padding:16px;'
+                f' border:{border}; margin-bottom:6px;'
+                f' box-shadow:0 2px 6px rgba(0,0,0,0.04);">'
+                f'<div style="font-size:0.72em;">'
+                f'<span style="background:{color}; color:white; padding:2px 8px; border-radius:10px; font-weight:700;">#{rank_num}</span>'
+                f' <span style="color:#94a3b8;">{ticker}</span>'
+                f' <span style="color:#94a3b8; float:right;">{sector}</span>'
+                f'</div>'
+                f'<div style="font-size:1.05em; font-weight:700; color:#1e293b; margin:6px 0 4px;">{name}</div>'
+                f'<div style="font-size:1.1em; font-weight:700; color:{chg_color};">'
+                f'{price:,}원 <span style="font-size:0.8em;">{arrow} {abs(change):.2f}%</span></div>'
+                f'{strength_bar}'
+                f'{supply_box}'
+                f'</div>'
+            )
+
             with col:
-                st.markdown(
-                    f"""<div style="
-                        background:{bg}; border-radius:14px; padding:16px;
-                        border:{border}; margin-bottom:6px;
-                        box-shadow:0 2px 6px rgba(0,0,0,0.04);
-                    ">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <div>
-                                <span style="
-                                    background:{color}; color:white;
-                                    padding:2px 8px; border-radius:10px;
-                                    font-size:0.72em; font-weight:700;
-                                ">#{rank_num}</span>
-                                <span style="font-size:0.72em; color:#94a3b8; margin-left:4px;">{ticker}</span>
-                            </div>
-                            <span style="font-size:0.68em; color:#94a3b8;">{sector}</span>
-                        </div>
-                        <div style="font-size:1.05em; font-weight:700; color:#1e293b; margin:6px 0 4px;">
-                            {name}
-                        </div>
-                        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-                            <span style="font-size:1.1em; font-weight:700; color:{chg_color};">
-                                {price:,}원
-                            </span>
-                            <span style="font-size:0.88em; font-weight:600; color:{chg_color};">
-                                {arrow} {abs(change):.2f}%
-                            </span>
-                        </div>
-                        <div style="margin-top:10px;">
-                            <div style="display:flex; justify-content:space-between; font-size:0.72em; color:#64748b; margin-bottom:3px;">
-                                <span>수급 강도</span>
-                                <span>{strength:.0f}%</span>
-                            </div>
-                            <div style="background:#e2e8f0; border-radius:6px; height:8px; overflow:hidden;">
-                                <div style="
-                                    width:{strength}%;
-                                    height:100%;
-                                    background:linear-gradient(90deg, {color}88, {color});
-                                    border-radius:6px;
-                                    transition: width 0.3s;
-                                "></div>
-                            </div>
-                        </div>
-                        <div style="margin-top:10px; display:flex; gap:6px;">
-                            <div style="
-                                flex:1; background:#eff6ff; border-radius:8px; padding:8px;
-                                text-align:center;
-                            ">
-                                <div style="font-size:0.68em; color:#64748b;">🏛️ 기관</div>
-                                <div style="font-size:0.95em; font-weight:700; color:#2563eb;">
-                                    {inst_sign}{inst:,.1f}억
-                                </div>
-                            </div>
-                            <div style="
-                                flex:1; background:#fff7ed; border-radius:8px; padding:8px;
-                                text-align:center;
-                            ">
-                                <div style="font-size:0.68em; color:#64748b;">🌍 외국인</div>
-                                <div style="font-size:0.95em; font-weight:700; color:#ea580c;">
-                                    {frgn_sign}{frgn:,.1f}억
-                                </div>
-                            </div>
-                            <div style="
-                                flex:1; background:#f0fdf4; border-radius:8px; padding:8px;
-                                text-align:center;
-                            ">
-                                <div style="font-size:0.68em; color:#64748b;">👤 개인</div>
-                                <div style="font-size:0.95em; font-weight:700; color:{'#16a34a' if indv > 0 else '#dc2626'};">
-                                    {'+' if indv > 0 else ''}{indv:,.1f}억
-                                </div>
-                            </div>
-                        </div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
+                st.markdown(card_html, unsafe_allow_html=True)
 
                 st.button(
                     "📈 상세" if not is_selected else "✅ 선택됨",

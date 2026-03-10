@@ -51,59 +51,50 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
         arrow = "▲" if change > 0 else "▼" if change < 0 else "−"
         rank_num = i + 1
 
+        # 수급 값 안전하게 미리 계산
+        inst_sign = "+" if inst > 0 else ""
+        frgn_sign = "+" if frgn > 0 else ""
+        indv_sign = "+" if indv > 0 else ""
+        indv_color = "#16a34a" if indv > 0 else "#dc2626"
+
+        strength_bar = (
+            f'<div style="margin-top:8px;">'
+            f'<div style="font-size:0.68em; color:#64748b; margin-bottom:2px;">'
+            f'수급 강도 {strength:.0f}%</div>'
+            f'<div style="background:#e2e8f0; border-radius:6px; height:6px; overflow:hidden;">'
+            f'<div style="width:{strength}%; height:100%; background:#7c3aed; border-radius:6px;"></div>'
+            f'</div></div>'
+        )
+
+        supply_box = (
+            f'<div style="margin-top:8px; font-size:0.75em;">'
+            f'<span style="color:#2563eb; font-weight:700;">🏛️{inst_sign}{inst:,.1f}억</span>'
+            f'&nbsp;&nbsp;'
+            f'<span style="color:#ea580c; font-weight:700;">🌍{frgn_sign}{frgn:,.1f}억</span>'
+            f'&nbsp;&nbsp;'
+            f'<span style="color:{indv_color}; font-weight:700;">👤{indv_sign}{indv:,.1f}억</span>'
+            f'</div>'
+        )
+
+        card_html = (
+            f'<div style="background:#ffffff; border-radius:14px; padding:16px;'
+            f' margin-bottom:10px; border-left:4px solid #7c3aed;'
+            f' border:1px solid #e2e8f0; box-shadow:0 2px 8px rgba(0,0,0,0.06);">'
+            f'<div style="font-size:0.72em;">'
+            f'<span style="background:#7c3aed; color:white; padding:2px 8px; border-radius:10px; font-weight:700;">#{rank_num}</span>'
+            f' <span style="color:#94a3b8;">{ticker}</span>'
+            f' <span style="color:#94a3b8; float:right;">{sector}</span>'
+            f'</div>'
+            f'<div style="font-size:1.05em; font-weight:bold; color:#1e293b; margin:6px 0 4px;">{name}</div>'
+            f'<div style="font-size:1.2em; font-weight:bold; color:{color};">'
+            f'{price:,.0f}원 <span style="font-size:0.65em;">{arrow} {abs(change):.2f}%</span></div>'
+            f'{strength_bar}'
+            f'{supply_box}'
+            f'</div>'
+        )
+
         with col:
-            st.markdown(
-                f"""
-                <div style="
-                    background: #ffffff;
-                    border-radius: 14px;
-                    padding: 16px;
-                    margin-bottom: 10px;
-                    border-left: 4px solid #7c3aed;
-                    border: 1px solid #e2e8f0;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-                ">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <span style="background:#7c3aed; color:white; padding:2px 8px; border-radius:10px; font-size:0.72em; font-weight:700;">#{rank_num}</span>
-                            <span style="font-size:0.75em; color:#94a3b8; margin-left:4px;">{ticker}</span>
-                        </div>
-                        <span style="font-size:0.65em; color:#94a3b8;">{sector}</span>
-                    </div>
-                    <div style="font-size:1.05em; font-weight:bold; color:#1e293b; margin:6px 0 4px;">
-                        {name}
-                    </div>
-                    <div style="font-size:1.2em; font-weight:bold; color:{color};">
-                        {price:,.0f}원
-                        <span style="font-size:0.65em;">{arrow} {abs(change):.2f}%</span>
-                    </div>
-                    <div style="margin-top:8px;">
-                        <div style="display:flex; justify-content:space-between; font-size:0.68em; color:#64748b; margin-bottom:2px;">
-                            <span>수급 강도</span>
-                            <span>{strength:.0f}%</span>
-                        </div>
-                        <div style="background:#e2e8f0; border-radius:6px; height:6px; overflow:hidden;">
-                            <div style="width:{strength}%; height:100%; background:linear-gradient(90deg, #7c3aed88, #7c3aed); border-radius:6px;"></div>
-                        </div>
-                    </div>
-                    <div style="margin-top:8px; display:flex; gap:4px; font-size:0.75em;">
-                        <div style="flex:1; background:#eff6ff; border-radius:6px; padding:5px; text-align:center;">
-                            <div style="color:#64748b; font-size:0.85em;">🏛️기관</div>
-                            <div style="font-weight:700; color:#2563eb;">{'+' if inst > 0 else ''}{inst:,.1f}억</div>
-                        </div>
-                        <div style="flex:1; background:#fff7ed; border-radius:6px; padding:5px; text-align:center;">
-                            <div style="color:#64748b; font-size:0.85em;">🌍외국인</div>
-                            <div style="font-weight:700; color:#ea580c;">{'+' if frgn > 0 else ''}{frgn:,.1f}억</div>
-                        </div>
-                        <div style="flex:1; background:#f0fdf4; border-radius:6px; padding:5px; text-align:center;">
-                            <div style="color:#64748b; font-size:0.85em;">👤개인</div>
-                            <div style="font-weight:700; color:{'#16a34a' if indv > 0 else '#dc2626'};">{'+' if indv > 0 else ''}{indv:,.1f}억</div>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.markdown(card_html, unsafe_allow_html=True)
 
 
 def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optional[str]:

@@ -197,38 +197,41 @@ def _render_card_grid(
                     )
 
                 vol_str = f"{volume/10000:.0f}만" if volume >= 10000 else f"{volume:,}"
+                arrow = '▲' if change > 0 else '▼' if change < 0 else '─'
 
-                st.markdown(
-                    f"""<div style="
-                        background:{bg}; border-radius:12px; padding:12px 14px;
-                        border:{border}; margin-bottom:4px;
-                        box-shadow:0 1px 4px rgba(0,0,0,0.04);
-                        min-height:110px;
-                    ">
-                        <div style="font-size:0.72em; color:#94a3b8;">{ticker}</div>
-                        <div style="font-size:0.95em; font-weight:700; color:#1e293b;
-                                    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                            {name}
-                        </div>
-                        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:6px;">
-                            <span style="font-size:1.05em; font-weight:700; color:{chg_color};">
-                                {price:,}
-                            </span>
-                            <span style="font-size:0.9em; font-weight:600; color:{chg_color};">
-                                {'▲' if change > 0 else '▼' if change < 0 else '─'}{abs(change):.2f}%
-                            </span>
-                        </div>
-                        <div style="font-size:0.72em; color:#94a3b8; margin-top:3px;">
-                            거래량 {vol_str}
-                        </div>
-                        {score_html}
-                        <div style="display:flex; gap:6px; margin-top:4px; font-size:0.68em;">
-                            <span style="color:#2563eb;">🏛️{r.get('기관합계_5일', 0) / 1e8:+,.0f}억</span>
-                            <span style="color:#ea580c;">🌍{r.get('외국인합계_5일', 0) / 1e8:+,.0f}억</span>
-                        </div>
-                    </div>""",
-                    unsafe_allow_html=True,
+                # 수급 값 안전하게 미리 계산
+                _inst_v = r.get('기관합계_5일', 0)
+                _frgn_v = r.get('외국인합계_5일', 0)
+                if pd.isna(_inst_v):
+                    _inst_v = 0
+                if pd.isna(_frgn_v):
+                    _frgn_v = 0
+                supply_html = (
+                    f'<div style="margin-top:4px; font-size:0.68em;">'
+                    f'<span style="color:#2563eb;">🏛️{_inst_v / 1e8:+,.0f}억</span>'
+                    f'&nbsp;&nbsp;'
+                    f'<span style="color:#ea580c;">🌍{_frgn_v / 1e8:+,.0f}억</span>'
+                    f'</div>'
                 )
+
+                card_html = (
+                    f'<div style="background:{bg}; border-radius:12px; padding:12px 14px;'
+                    f' border:{border}; margin-bottom:4px;'
+                    f' box-shadow:0 1px 4px rgba(0,0,0,0.04); min-height:110px;">'
+                    f'<div style="font-size:0.72em; color:#94a3b8;">{ticker}</div>'
+                    f'<div style="font-size:0.95em; font-weight:700; color:#1e293b;'
+                    f' white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{name}</div>'
+                    f'<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:6px;">'
+                    f'<span style="font-size:1.05em; font-weight:700; color:{chg_color};">{price:,}</span>'
+                    f'<span style="font-size:0.9em; font-weight:600; color:{chg_color};">{arrow}{abs(change):.2f}%</span>'
+                    f'</div>'
+                    f'<div style="font-size:0.72em; color:#94a3b8; margin-top:3px;">거래량 {vol_str}</div>'
+                    f'{score_html}'
+                    f'{supply_html}'
+                    f'</div>'
+                )
+
+                st.markdown(card_html, unsafe_allow_html=True)
 
                 # 버튼: 상세 보기
                 st.button(
