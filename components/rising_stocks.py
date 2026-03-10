@@ -222,6 +222,10 @@ def _render_card_grid(
                             거래량 {vol_str}
                         </div>
                         {score_html}
+                        <div style="display:flex; gap:6px; margin-top:4px; font-size:0.68em;">
+                            <span style="color:#2563eb;">🏛️{r.get('기관합계_5일', 0) / 1e8:+,.0f}억</span>
+                            <span style="color:#ea580c;">🌍{r.get('외국인합계_5일', 0) / 1e8:+,.0f}억</span>
+                        </div>
                     </div>""",
                     unsafe_allow_html=True,
                 )
@@ -512,6 +516,11 @@ def _build_display_df(
             d["모멘텀점수"] = round(r["모멘텀점수"], 1)
         if show_type:
             d["유형"] = str(r.get("종목유형", "")).upper()
+        # 수급 정보 추가
+        if "기관합계_5일" in r.index:
+            d["기관(억)"] = round(r.get("기관합계_5일", 0) / 1e8, 1)
+        if "외국인합계_5일" in r.index:
+            d["외국인(억)"] = round(r.get("외국인합계_5일", 0) / 1e8, 1)
         if "업종" in r and r.get("업종"):
             d["업종"] = r.get("업종", "")
         rows.append(d)

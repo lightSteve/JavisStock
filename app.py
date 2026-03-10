@@ -27,6 +27,7 @@ from components.sidebar import render_sidebar
 from components.heatmap import render_sector_heatmap, render_sector_bar_chart
 from components.top_picks import render_top_cards, render_screened_table
 from components.detail import render_detail_view
+from components.supply_flow import render_supply_flow
 
 from components.rising_stocks import render_rising_stocks
 
@@ -294,14 +295,21 @@ if st.session_state.get("load_data"):
                 st.info("하락 종목이 없습니다.")
 
     # ===================================================================
-    # 탭 구성: 섹터 히트맵 / 상승 종목 분석 / 오늘의 발굴 종목 / 종목 상세
+    # 탭 구성: 기관·외국인 수급 / 섹터 히트맵 / 상승 종목 분석 / 오늘의 발굴 종목 / 종목 상세
     # ===================================================================
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab0, tab1, tab2, tab3, tab4 = st.tabs([
+        "🏛️ 기관·외국인 수급",
         "🗺️ 섹터 히트맵",
         "📊 상승 종목 분석",
         "🔥 오늘의 발굴 종목",
         "📈 종목 상세",
     ])
+
+    # --- 탭 0: 기관·외국인 수급 ---
+    with tab0:
+        selected_from_supply = render_supply_flow(daily_df)
+        if selected_from_supply:
+            st.session_state["selected_ticker"] = selected_from_supply
 
     # --- 탭 1: 섹터 히트맵 ---
     with tab1:
