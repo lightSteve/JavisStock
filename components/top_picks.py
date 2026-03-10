@@ -77,7 +77,6 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
                         {price:,.0f}원
                         <span style="font-size:0.65em;">{arrow} {abs(change):.2f}%</span>
                     </div>
-                    <!-- 수급 강도 바 -->
                     <div style="margin-top:8px;">
                         <div style="display:flex; justify-content:space-between; font-size:0.68em; color:#64748b; margin-bottom:2px;">
                             <span>수급 강도</span>
@@ -87,7 +86,6 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
                             <div style="width:{strength}%; height:100%; background:linear-gradient(90deg, #7c3aed88, #7c3aed); border-radius:6px;"></div>
                         </div>
                     </div>
-                    <!-- 기관/외국인/개인 -->
                     <div style="margin-top:8px; display:flex; gap:4px; font-size:0.75em;">
                         <div style="flex:1; background:#eff6ff; border-radius:6px; padding:5px; text-align:center;">
                             <div style="color:#64748b; font-size:0.85em;">🏛️기관</div>

@@ -293,8 +293,6 @@ def _render_supply_cards(
                                 {arrow} {abs(change):.2f}%
                             </span>
                         </div>
-
-                        <!-- 수급 강도 바 -->
                         <div style="margin-top:10px;">
                             <div style="display:flex; justify-content:space-between; font-size:0.72em; color:#64748b; margin-bottom:3px;">
                                 <span>수급 강도</span>
@@ -310,8 +308,6 @@ def _render_supply_cards(
                                 "></div>
                             </div>
                         </div>
-
-                        <!-- 기관 / 외국인 수급 -->
                         <div style="margin-top:10px; display:flex; gap:6px;">
                             <div style="
                                 flex:1; background:#eff6ff; border-radius:8px; padding:8px;
