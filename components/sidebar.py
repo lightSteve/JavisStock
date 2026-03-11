@@ -8,10 +8,17 @@
 
 import datetime
 import streamlit as st
-from data.fetcher import get_latest_trading_date
 
 # 요일 한글 매핑
 _WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _get_default_date() -> datetime.date:
+    """분석 기준일 기본값: 오늘 날짜 (주말이면 가장 최근 평일)."""
+    dt = datetime.date.today()
+    while dt.weekday() >= 5:
+        dt -= datetime.timedelta(days=1)
+    return dt
 
 
 def render_sidebar() -> dict:
@@ -20,8 +27,7 @@ def render_sidebar() -> dict:
 
     # --- 날짜 선택 ---
     st.sidebar.markdown("### 📅 기준일")
-    latest = get_latest_trading_date()
-    default_date = datetime.datetime.strptime(latest, "%Y%m%d").date()
+    default_date = _get_default_date()
     selected_date = st.sidebar.date_input(
         "분석 기준일",
         value=default_date,

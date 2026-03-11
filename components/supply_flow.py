@@ -41,9 +41,9 @@ def render_supply_flow(daily_df: pd.DataFrame) -> Optional[str]:
 
     # ─── 3개 서브탭 ─────────────────────────────────────────────
     tab_inst, tab_frgn, tab_both = st.tabs([
-        "🏛️ 기관 순매수 TOP",
-        "🌍 외국인 순매수 TOP",
-        "🔥 쌍끌이 (기관+외국인) TOP",
+        "🏛️ 기관 TOP",
+        "🌍 외국인 TOP",
+        "🔥 쌍끌이 TOP",
     ])
 
     selected = None
@@ -88,18 +88,22 @@ def _render_supply_dashboard(df: pd.DataFrame):
     frgn_buy = df[df[frgn_col] > 0]
     both_buy = df[(df[inst_col] > 0) & (df[frgn_col] > 0)]
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
+    # 첫 번째 행: 기관 관련 2개
+    r1c1, r1c2 = st.columns(2)
+    with r1c1:
         st.metric("🏛️ 기관 순매수 종목", f"{len(inst_buy):,}개")
-    with c2:
+    with r1c2:
         total_inst = inst_buy[inst_col].sum() / 1e8
         st.metric("기관 총 순매수", f"{total_inst:,.0f}억")
-    with c3:
+
+    # 두 번째 행: 외국인 2개 + 쌍끌이 1개
+    r2c1, r2c2, r2c3 = st.columns(3)
+    with r2c1:
         st.metric("🌍 외국인 순매수 종목", f"{len(frgn_buy):,}개")
-    with c4:
+    with r2c2:
         total_frgn = frgn_buy[frgn_col].sum() / 1e8
         st.metric("외국인 총 순매수", f"{total_frgn:,.0f}억")
-    with c5:
+    with r2c3:
         st.metric("🔥 쌍끌이 종목", f"{len(both_buy):,}개")
 
     # ─── 기관 vs 외국인 수급 비교 차트 ─────
@@ -269,7 +273,7 @@ def _render_supply_cards(
 
             strength_bar = (
                 f'<div style="margin-top:10px;">'
-                f'<div style="font-size:0.72em; color:#64748b; margin-bottom:3px;">'
+                f'<div style="font-size:0.78em; color:#64748b; margin-bottom:3px;">'
                 f'수급 강도 {strength:.0f}%</div>'
                 f'<div style="background:#e2e8f0; border-radius:6px; height:8px; overflow:hidden;">'
                 f'<div style="width:{strength}%; height:100%; background:{color}; border-radius:6px;"></div>'
@@ -277,12 +281,10 @@ def _render_supply_cards(
             )
 
             supply_box = (
-                f'<div style="margin-top:10px; font-size:0.82em;">'
-                f'<span style="color:#2563eb; font-weight:700;">🏛️ {inst_sign}{inst:,.1f}억</span>'
-                f'&nbsp;&nbsp;'
-                f'<span style="color:#ea580c; font-weight:700;">🌍 {frgn_sign}{frgn:,.1f}억</span>'
-                f'&nbsp;&nbsp;'
-                f'<span style="color:{indv_color}; font-weight:700;">👤 {indv_sign}{indv:,.1f}억</span>'
+                f'<div style="margin-top:10px; font-size:0.85em; display:flex; flex-wrap:wrap; gap:4px;">'
+                f'<span style="color:#2563eb; font-weight:700;">🏛️ {inst_sign}{inst:,.0f}억</span>'
+                f'<span style="color:#ea580c; font-weight:700;">🌍 {frgn_sign}{frgn:,.0f}억</span>'
+                f'<span style="color:{indv_color}; font-weight:700;">👤 {indv_sign}{indv:,.0f}억</span>'
                 f'</div>'
             )
 
@@ -290,14 +292,17 @@ def _render_supply_cards(
                 f'<div style="background:{bg}; border-radius:14px; padding:16px;'
                 f' border:{border}; margin-bottom:6px;'
                 f' box-shadow:0 2px 6px rgba(0,0,0,0.04);">'
-                f'<div style="font-size:0.72em;">'
-                f'<span style="background:{color}; color:white; padding:2px 8px; border-radius:10px; font-weight:700;">#{rank_num}</span>'
-                f' <span style="color:#94a3b8;">{ticker}</span>'
-                f' <span style="color:#94a3b8; float:right;">{sector}</span>'
+                f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">'
+                f'<span style="background:{color}; color:white; padding:2px 8px;'
+                f' border-radius:10px; font-size:0.75em; font-weight:700;">#{rank_num}</span>'
+                f'<span style="color:#94a3b8; font-size:0.75em; overflow:hidden;'
+                f' text-overflow:ellipsis; white-space:nowrap; max-width:60%;">{sector}</span>'
                 f'</div>'
-                f'<div style="font-size:1.05em; font-weight:700; color:#1e293b; margin:6px 0 4px;">{name}</div>'
+                f'<div style="font-size:0.78em; color:#94a3b8; margin-bottom:2px;">{ticker}</div>'
+                f'<div style="font-size:1.05em; font-weight:700; color:#1e293b; margin-bottom:4px;'
+                f' white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{name}</div>'
                 f'<div style="font-size:1.1em; font-weight:700; color:{chg_color};">'
-                f'{price:,}원 <span style="font-size:0.8em;">{arrow} {abs(change):.2f}%</span></div>'
+                f'{price:,}원 <span style="font-size:0.82em;">{arrow} {abs(change):.2f}%</span></div>'
                 f'{strength_bar}'
                 f'{supply_box}'
                 f'</div>'

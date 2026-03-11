@@ -30,6 +30,7 @@ from components.detail import render_detail_view
 from components.supply_flow import render_supply_flow
 
 from components.rising_stocks import render_rising_stocks
+from components.smart_picks import render_smart_top3
 
 # ===========================================================================
 # 페이지 설정
@@ -45,12 +46,13 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* 전체 배경 — 밝은 다크 테마 */
-    .stApp {
-        background-color: #f8f9fc;
-        color: #1a1a2e;
-    }
-    /* 사이드바 */
+    /* ── 기본 초기화 ── */
+    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+
+    /* ── 앱 배경 ── */
+    .stApp { background-color: #f8f9fc; color: #1a1a2e; }
+
+    /* ── 사이드바 ── */
     section[data-testid="stSidebar"] {
         background-color: #1e293b;
         color: #e2e8f0;
@@ -61,78 +63,132 @@ st.markdown(
     section[data-testid="stSidebar"] span {
         color: #e2e8f0 !important;
     }
-    /* 헤더 */
+
+    /* ── 헤더 ── */
     .main-header {
         background: linear-gradient(90deg, #4f46e5 0%, #7c3aed 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-size: 2.5em;
+        font-size: 1.9rem;
         font-weight: 800;
         text-align: center;
-        padding: 10px 0;
+        padding: 6px 0;
+        line-height: 1.2;
     }
     .sub-header {
         text-align: center;
         color: #64748b;
-        font-size: 1.1em;
-        margin-bottom: 20px;
+        font-size: 0.9em;
+        margin-bottom: 12px;
+        padding: 0 12px;
     }
-    /* 탭 스타일 */
+
+    /* ── 탭 (가로 스크롤 + 폰트 축소) ── */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 4px;
         background-color: #f1f5f9;
         border-radius: 12px;
         padding: 4px;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        flex-wrap: nowrap !important;
     }
+    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
     .stTabs [data-baseweb="tab"] {
         border-radius: 8px;
-        padding: 8px 20px;
+        padding: 7px 14px;
         color: #475569;
         font-weight: 600;
+        font-size: 0.88em;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
     }
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
         background-color: #fff;
         color: #4f46e5;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.10);
     }
-    /* 메트릭 카드 */
+
+    /* ── 메트릭 카드 ── */
     [data-testid="stMetric"] {
         background-color: #ffffff;
         border-radius: 12px;
-        padding: 18px;
+        padding: 14px 16px;
         border: 1px solid #e2e8f0;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
     [data-testid="stMetric"] label {
         color: #64748b !important;
         font-weight: 600;
+        font-size: 0.78em !important;
     }
     [data-testid="stMetric"] [data-testid="stMetricValue"] {
         color: #1e293b !important;
         font-weight: 700;
+        font-size: 1.25em !important;
     }
-    /* 데이터프레임 */
-    .stDataFrame {
-        border-radius: 12px;
-        overflow: hidden;
-    }
-    /* 마크다운 텍스트 */
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-        color: #1e293b;
-    }
-    .stMarkdown p, .stMarkdown li {
-        color: #334155;
-    }
-    /* 버튼 */
+
+    /* ── 데이터프레임 ── */
+    .stDataFrame { border-radius: 12px; overflow: hidden; }
+    [data-testid="stDataFrameContainer"] { overflow-x: auto !important; }
+
+    /* ── 마크다운 ── */
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: #1e293b; }
+    .stMarkdown p, .stMarkdown li { color: #334155; }
+
+    /* ── 버튼 ── */
     .stButton button[kind="primary"] {
         background-color: #4f46e5;
         color: white;
         border: none;
         border-radius: 8px;
+        font-weight: 600;
     }
-    /* 정보/경고 박스 */
-    .stAlert {
-        border-radius: 10px;
+    .stButton button {
+        border-radius: 8px !important;
+        font-weight: 600;
+        font-size: 0.9em;
+    }
+
+    /* ── 알림 박스 ── */
+    .stAlert { border-radius: 10px; }
+
+    /* ── 인풋 / 셀렉트박스 ── */
+    .stSelectbox > div > div { border-radius: 8px !important; }
+    .stTextInput > div > div { border-radius: 8px !important; }
+
+    /* ════════════════════════════════
+       모바일 반응형 (max-width: 768px)
+       ════════════════════════════════ */
+    @media (max-width: 768px) {
+        /* 헤더 축소 */
+        .main-header { font-size: 1.4rem !important; }
+        .sub-header  { font-size: 0.82em !important; }
+
+        /* 컬럼 그리드: 최소 160px → 화면 너비에 따라 2열로 자동 래핑 */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+        }
+        [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+            min-width: calc(50% - 0.5rem) !important;
+            flex: 1 1 calc(50% - 0.5rem) !important;
+        }
+
+        /* 버튼 터치 영역 확대 */
+        .stButton button {
+            min-height: 44px !important;
+            font-size: 0.95em !important;
+        }
+
+        /* 메트릭 글자 크기 조정 */
+        [data-testid="stMetric"] { padding: 10px 12px; }
+        [data-testid="stMetric"] [data-testid="stMetricValue"] {
+            font-size: 1.1em !important;
+        }
+
+        /* 섹션 h2 축소 */
+        .stMarkdown h2 { font-size: 1.15em !important; }
     }
     </style>
     """,
@@ -144,7 +200,7 @@ st.markdown(
 # ===========================================================================
 st.markdown('<div class="main-header">📊 TrendCatcher</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-header">전종목 우상향 & 수급 분석 대시보드 — 가격과 돈의 흐름을 한눈에</div>',
+    '<div class="sub-header">전종목 우상향 &amp; 수급 분석 대시보드</div>',
     unsafe_allow_html=True,
 )
 
@@ -298,11 +354,11 @@ if st.session_state.get("load_data"):
     # 탭 구성: 기관·외국인 수급 / 섹터 히트맵 / 상승 종목 분석 / 오늘의 발굴 종목 / 종목 상세
     # ===================================================================
     tab0, tab1, tab2, tab3, tab4 = st.tabs([
-        "🏛️ 기관·외국인 수급",
-        "🗺️ 섹터 히트맵",
-        "📊 상승 종목 분석",
-        "🔥 오늘의 발굴 종목",
-        "📈 종목 상세",
+        "🏛️ 수급",
+        "🗺️ 섹터",
+        "📊 상승종목",
+        "🔥 발굴",
+        "📈 상세",
     ])
 
     # --- 탭 0: 기관·외국인 수급 ---
@@ -324,6 +380,12 @@ if st.session_state.get("load_data"):
 
     # --- 탭 3: 오늘의 발굴 종목 ---
     with tab3:
+        # ── AI 스마트 Top 3 (멀티팩터 점수 기반) ──
+        render_smart_top3(daily_df, date_str)
+
+        st.markdown("---")
+
+        # ── 수급 TOP 카드 (기존) ──
         render_top_cards(daily_df, top_n=5)
 
         st.markdown("---")
@@ -382,19 +444,34 @@ else:
     st.markdown("---")
     st.markdown(
         """
-        <div style="text-align:center; padding:60px 20px;">
-            <div style="font-size:4em; margin-bottom:20px;">🚀</div>
-            <h2 style="color:#4f46e5;">시작하기</h2>
-            <p style="color:#64748b; font-size:1.2em; max-width:600px; margin:0 auto;">
-                왼쪽 사이드바에서 날짜와 시장을 설정한 후<br>
-                <b>"데이터 로드 & 분석 시작"</b> 버튼을 클릭하세요.
+        <div style="text-align:center; padding:40px 16px 20px;">
+            <div style="font-size:3em; margin-bottom:16px;">📊</div>
+            <h2 style="color:#4f46e5; margin-bottom:8px;">TrendCatcher 시작하기</h2>
+            <p style="color:#64748b; font-size:1em; max-width:500px; margin:0 auto 24px;">
+                왼쪽 사이드바에서 날짜와 시장을 선택한 후<br>
+                <b>"데이터 로드 & 분석 시작"</b> 버튼을 누르세요.
             </p>
-            <br>
-            <div style="color:#94a3b8; font-size:0.9em;">
-                🗺️ 섹터 히트맵 &nbsp;|&nbsp;
-                📊 상승 종목 거래량·실적 &nbsp;|&nbsp;
-                🔥 수급 기반 종목 발굴 &nbsp;|&nbsp;
-                📈 상세 차트 분석
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; padding:0 16px 40px; max-width:700px; margin:0 auto;">
+            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
+                <div style="font-size:1.6em;">🏛️</div>
+                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">기관·외국인 수급</div>
+                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">쌍끌이 종목 포착</div>
+            </div>
+            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
+                <div style="font-size:1.6em;">🗺️</div>
+                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">섹터 히트맵</div>
+                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">시가총액 비중 시각화</div>
+            </div>
+            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
+                <div style="font-size:1.6em;">🔥</div>
+                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">AI 발굴 TOP 3</div>
+                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">멀티팩터 점수 분석</div>
+            </div>
+            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
+                <div style="font-size:1.6em;">📈</div>
+                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">종목 상세 차트</div>
+                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">캔들 + 수급 + 실적</div>
             </div>
         </div>
         """,

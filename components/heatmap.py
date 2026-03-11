@@ -21,16 +21,40 @@ def render_sector_heatmap(daily_df: pd.DataFrame):
         st.warning("섹터 데이터가 없습니다. 데이터를 먼저 로드해주세요.")
         return
 
+    # 업종 미분류 종목 제외
+    df = daily_df.dropna(subset=["업종"]).copy()
+    df = df[df["업종"].str.strip() != ""]
+
+    if df.empty:
+        st.warning("업종 정보가 있는 종목이 없습니다.")
+        return
+
     # --- 섹터별 집계 ---
-    sector_agg = daily_df.groupby("업종").agg(
-        평균등락률=("등락률", "mean"),
-        종목수=("등락률", "count"),
-        총거래대금=("거래대금", "sum"),
-    ).reset_index()
+    agg_dict = {
+        "평균등락률": ("등락률", "mean"),
+        "종목수": ("등락률", "count"),
+        "총거래대금": ("거래대금", "sum"),
+    }
+    if "시가총액" in df.columns:
+        agg_dict["총시가총액"] = ("시가총액", "sum")
+
+    sector_agg = df.groupby("업종").agg(**agg_dict).reset_index()
+
+    # 크기 기준: 시가총액 우선, 없으면 거래대금 사용
+    if "총시가총액" in sector_agg.columns:
+        sector_agg["총시가총액"] = sector_agg["총시가총액"].fillna(0)
+        # 시가총액이 0인 섹터가 많으면 거래대금으로 fallback
+        valid_mktcap = (sector_agg["총시가총액"] > 0).sum()
+        size_col = "총시가총액" if valid_mktcap >= len(sector_agg) * 0.5 else "총거래대금"
+    else:
+        size_col = "총거래대금"
+
+    # 크기 값이 0이면 최솟값(1)으로 채워 treemap 오류 방지
+    sector_agg[size_col] = sector_agg[size_col].clip(lower=1)
 
     # 수급 집계 (있는 경우)
-    if "기관합계_5일" in daily_df.columns:
-        supply_agg = daily_df.groupby("업종").agg(
+    if "기관합계_5일" in df.columns:
+        supply_agg = df.groupby("업종").agg(
             기관순매수합=("기관합계_5일", "sum"),
             외국인순매수합=("외국인합계_5일", "sum"),
         ).reset_index()
@@ -39,33 +63,41 @@ def render_sector_heatmap(daily_df: pd.DataFrame):
             sector_agg["기관순매수합"].fillna(0) + sector_agg["외국인순매수합"].fillna(0)
         )
 
-    # 등락률 기반 색상 범위
-    max_abs = max(abs(sector_agg["평균등락률"].min()), abs(sector_agg["평균등락률"].max()), 3)
+    # 등락률 기반 색상 범위 (최소 ±2%)
+    max_abs = max(
+        abs(sector_agg["평균등락률"].min()),
+        abs(sector_agg["평균등락률"].max()),
+        2.0,
+    )
+
+    # 시가총액을 조 단위로 표시
+    size_label = "시가총액" if size_col == "총시가총액" else "거래대금"
+    sector_agg["_size_display"] = (sector_agg[size_col] / 1e12).round(2)  # 조 원
 
     # --- Treemap ---
     fig = px.treemap(
         sector_agg,
         path=["업종"],
-        values="종목수",
+        values=size_col,
         color="평균등락률",
         color_continuous_scale="RdYlGn",
         range_color=[-max_abs, max_abs],
-        custom_data=["평균등락률", "종목수", "총거래대금"],
-        title="섹터별 등락률 히트맵 (크기=종목수, 색상=평균등락률)",
+        custom_data=["평균등락률", "종목수", "_size_display"],
+        title=f"섹터별 등락률 히트맵  (크기={size_label} 비중 · 색상=평균 등락률)",
     )
     fig.update_traces(
-        texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}%",
+        texttemplate="<b>%{label}</b><br>%{customdata[0]:+.2f}%",
         textfont=dict(size=13),
         hovertemplate=(
             "<b>%{label}</b><br>"
-            "평균 등락률: %{customdata[0]:.2f}%<br>"
-            "종목 수: %{customdata[1]}<br>"
-            "총 거래대금: %{customdata[2]:,.0f}원<br>"
+            "평균 등락률: %{customdata[0]:+.2f}%<br>"
+            "종목 수: %{customdata[1]}개<br>"
+            f"{size_label}: %{{customdata[2]:,.1f}}조원<br>"
             "<extra></extra>"
         ),
     )
     fig.update_layout(
-        height=500,
+        height=520,
         margin=dict(t=50, l=10, r=10, b=10),
         coloraxis_colorbar=dict(title="등락률(%)"),
     )

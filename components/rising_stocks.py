@@ -24,8 +24,8 @@ from data.fetcher import (
 )
 from analysis.indicators import calc_all_indicators, get_technical_summary
 
-# 한 행에 보여줄 카드 수
-_COLS_PER_ROW = 4
+# 한 행에 보여줄 카드 수 (데스크톱 3열, 모바일 CSS로 2열)
+_COLS_PER_ROW = 3
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -41,9 +41,9 @@ def render_rising_stocks(daily_df: pd.DataFrame) -> Optional[str]:
         return None
 
     sub1, sub2, sub3 = st.tabs([
-        "📦 ETF/ETN 상승률 TOP 20",
-        "🏛️ KOSPI 우선순위 50",
-        "🚀 KOSDAQ 우선순위 50",
+        "📦 ETF/ETN TOP20",
+        "🏛️ KOSPI TOP50",
+        "🚀 KOSDAQ TOP50",
     ])
 
     selected = None
@@ -192,7 +192,7 @@ def _render_card_grid(
                 score_html = ""
                 if show_score and score is not None:
                     score_html = (
-                        f'<div style="font-size:0.72em; color:#6366f1; margin-top:2px;">'
+                        f'<div style="font-size:0.78em; color:#6366f1; margin-top:3px; font-weight:600;">'
                         f'모멘텀 {score:.0f}</div>'
                     )
 
@@ -207,25 +207,25 @@ def _render_card_grid(
                 if pd.isna(_frgn_v):
                     _frgn_v = 0
                 supply_html = (
-                    f'<div style="margin-top:4px; font-size:0.68em;">'
-                    f'<span style="color:#2563eb;">🏛️{_inst_v / 1e8:+,.0f}억</span>'
-                    f'&nbsp;&nbsp;'
-                    f'<span style="color:#ea580c;">🌍{_frgn_v / 1e8:+,.0f}억</span>'
+                    f'<div style="margin-top:5px; font-size:0.78em;">'
+                    f'<span style="color:#2563eb; font-weight:600;">🏛️{_inst_v / 1e8:+,.0f}억</span>'
+                    f'&nbsp;'
+                    f'<span style="color:#ea580c; font-weight:600;">🌍{_frgn_v / 1e8:+,.0f}억</span>'
                     f'</div>'
                 )
 
                 card_html = (
-                    f'<div style="background:{bg}; border-radius:12px; padding:12px 14px;'
+                    f'<div style="background:{bg}; border-radius:12px; padding:14px;'
                     f' border:{border}; margin-bottom:4px;'
-                    f' box-shadow:0 1px 4px rgba(0,0,0,0.04); min-height:110px;">'
-                    f'<div style="font-size:0.72em; color:#94a3b8;">{ticker}</div>'
-                    f'<div style="font-size:0.95em; font-weight:700; color:#1e293b;'
+                    f' box-shadow:0 1px 4px rgba(0,0,0,0.05); min-height:120px;">'
+                    f'<div style="font-size:0.78em; color:#94a3b8; margin-bottom:2px;">{ticker}</div>'
+                    f'<div style="font-size:0.98em; font-weight:700; color:#1e293b;'
                     f' white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{name}</div>'
-                    f'<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:6px;">'
-                    f'<span style="font-size:1.05em; font-weight:700; color:{chg_color};">{price:,}</span>'
-                    f'<span style="font-size:0.9em; font-weight:600; color:{chg_color};">{arrow}{abs(change):.2f}%</span>'
+                    f'<div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:7px;">'
+                    f'<span style="font-size:1.08em; font-weight:700; color:{chg_color};">{price:,}</span>'
+                    f'<span style="font-size:0.92em; font-weight:600; color:{chg_color};">{arrow}{abs(change):.2f}%</span>'
                     f'</div>'
-                    f'<div style="font-size:0.72em; color:#94a3b8; margin-top:3px;">거래량 {vol_str}</div>'
+                    f'<div style="font-size:0.78em; color:#94a3b8; margin-top:3px;">거래량 {vol_str}</div>'
                     f'{score_html}'
                     f'{supply_html}'
                     f'</div>'
@@ -295,7 +295,7 @@ def _render_detail_panel(ticker: str, tab_key: str):
     st.markdown("---")
 
     # 기간 선택 + 닫기 버튼
-    hd1, hd2, hd3 = st.columns([4, 1, 1])
+    hd1, hd2, hd3 = st.columns([3, 1, 1])
     with hd1:
         st.markdown(
             f"<span style='font-size:1.15em; font-weight:700; color:#4f46e5;'>"
