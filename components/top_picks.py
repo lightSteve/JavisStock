@@ -116,10 +116,14 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
         "외국인합계_5일": "외국인순매수(5일)",
         "개인_5일": "개인순매수(5일)",
         "차트상태": "차트상태",
+        "RSI값": "RSI값",
+        "RSI상태": "RSI상태",
+        "MACD상태": "MACD상태",
+        "볼린저상태": "볼린저상태",
         "골든크로스": "골든크로스",
         "거래량급증": "거래량급증",
         "업종": "업종",
-        "거래대금": "거래대금",
+        "거래대금": "거래대금(억)",
     }
 
     df = screened_df.head(top_n).copy()
