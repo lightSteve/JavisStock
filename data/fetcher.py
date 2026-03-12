@@ -780,3 +780,277 @@ def list_available_snapshots(market: str = "ALL") -> list:
         if fname.endswith(suffix):
             dates.append(fname.replace(suffix, ""))
     return dates
+
+
+# ---------------------------------------------------------------------------
+# 테마 데이터 (Naver Finance HTML 스크래핑)
+# ---------------------------------------------------------------------------
+
+def get_theme_list() -> pd.DataFrame:
+    """
+    Naver Finance 테마별 시세 스크래핑.
+    반환: columns=[테마명, 테마번호, 등락률, 종목수]
+    """
+    cache_key = "theme_list"
+    if cache_key in _cache:
+        cached = _cache[cache_key]
+        if isinstance(cached, pd.DataFrame):
+            return cached
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return pd.DataFrame()
+
+    themes = []
+    for page in range(1, 6):
+        url = f"{NAVER_FINANCE}/sise/theme.naver"
+        try:
+            resp = _session.get(url, params={"page": page}, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            rows = soup.select("table.type_1 tr")
+            for row in rows:
+                cols = row.select("td")
+                if len(cols) < 4:
+                    continue
+                link = row.select_one("a[href*='type=theme']")
+                if not link:
+                    continue
+                theme_name = link.get_text(strip=True)
+                href = link.get("href", "")
+                m = re.search(r"no=(\d+)", href)
+                theme_no = m.group(1) if m else ""
+
+                # 등락률
+                change_text = cols[1].get_text(strip=True).replace("%", "").replace("+", "")
+                change_val = _to_float(change_text) if change_text else 0.0
+
+                themes.append({
+                    "테마명": theme_name,
+                    "테마번호": theme_no,
+                    "등락률": change_val,
+                })
+
+            if not rows or len([r for r in rows if r.select("td")]) < 5:
+                break
+        except Exception:
+            break
+        time.sleep(0.1)
+
+    if not themes:
+        return pd.DataFrame()
+    df = pd.DataFrame(themes)
+    _cache[cache_key] = df
+    return df
+
+
+def get_theme_constituents(theme_no: str) -> pd.DataFrame:
+    """
+    특정 테마 구성 종목 스크래핑.
+    반환: columns=[티커, 종목명, 현재가, 등락률, 거래대금]
+    """
+    cache_key = f"theme_const_{theme_no}"
+    if cache_key in _cache:
+        cached = _cache[cache_key]
+        if isinstance(cached, pd.DataFrame):
+            return cached
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return pd.DataFrame()
+
+    url = f"{NAVER_FINANCE}/sise/sise_group_detail.naver"
+    try:
+        resp = _session.get(url, params={"type": "theme", "no": theme_no}, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception:
+        return pd.DataFrame()
+
+    rows_data = []
+    for link in soup.select("a[href*='/item/main.naver?code=']"):
+        m = re.search(r"code=(\d{6})", link.get("href", ""))
+        if not m:
+            continue
+        ticker = m.group(1)
+        name = link.get_text(strip=True)
+        if not name:
+            continue
+
+        tr = link.find_parent("tr")
+        if not tr:
+            continue
+        tds = tr.select("td")
+        price = _to_int(tds[1].get_text(strip=True)) if len(tds) > 1 else 0
+        change_text = tds[2].get_text(strip=True).replace("%", "").replace("+", "") if len(tds) > 2 else "0"
+        change_val = _to_float(change_text)
+        tv = _to_int(tds[6].get_text(strip=True)) if len(tds) > 6 else 0
+
+        rows_data.append({
+            "티커": ticker,
+            "종목명": name,
+            "현재가": price,
+            "등락률": change_val,
+            "거래대금": tv,
+        })
+
+    if not rows_data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows_data)
+    _cache[cache_key] = df
+    return df
+    time.sleep(0.1)
+
+
+# ---------------------------------------------------------------------------
+# 프로그램 매매 데이터
+# ---------------------------------------------------------------------------
+
+def get_program_trading_top() -> pd.DataFrame:
+    """
+    프로그램 매매 순매수/순매도 상위 종목 스크래핑.
+    반환: columns=[티커, 종목명, 프로그램순매수(백만원), 유형(순매수/순매도)]
+    """
+    cache_key = "program_trading"
+    if cache_key in _cache:
+        cached = _cache[cache_key]
+        if isinstance(cached, pd.DataFrame):
+            return cached
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return pd.DataFrame()
+
+    url = f"{NAVER_FINANCE}/sise/programTrade.naver"
+    try:
+        resp = _session.get(url, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception:
+        return pd.DataFrame()
+
+    all_rows = []
+    tables = soup.select("table.type_1")
+
+    for tidx, table in enumerate(tables[:2]):
+        trade_type = "순매수" if tidx == 0 else "순매도"
+        for row in table.select("tr"):
+            tds = row.select("td")
+            if len(tds) < 4:
+                continue
+            link = row.select_one("a[href*='main.naver?code=']")
+            if not link:
+                continue
+            m = re.search(r"code=(\d{6})", link.get("href", ""))
+            if not m:
+                continue
+            ticker = m.group(1)
+            name = link.get_text(strip=True)
+            amount_text = tds[3].get_text(strip=True) if len(tds) > 3 else "0"
+            amount = _to_signed_int(amount_text)
+
+            all_rows.append({
+                "티커": ticker,
+                "종목명": name,
+                "프로그램순매수": amount if trade_type == "순매수" else -abs(amount),
+                "유형": trade_type,
+            })
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_rows)
+    _cache[cache_key] = df
+    return df
+
+
+# ---------------------------------------------------------------------------
+# 종목 뉴스
+# ---------------------------------------------------------------------------
+
+def get_stock_news_list(ticker: str, count: int = 10) -> List[Dict]:
+    """
+    종목별 최신 뉴스 리스트.
+    반환: [{"title": str, "date": str, "source": str, "url": str}, ...]
+    """
+    cache_key = f"news_{ticker}"
+    if cache_key in _cache:
+        return _cache[cache_key]
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return []
+
+    url = f"{NAVER_FINANCE}/item/news_news.naver"
+    try:
+        resp = _session.get(url, params={"code": ticker, "page": 1}, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception:
+        return []
+
+    articles = []
+    for row in soup.select("tr"):
+        title_el = row.select_one("a.tit")
+        if not title_el:
+            continue
+        title = title_el.get_text(strip=True)
+        href = title_el.get("href", "")
+        if href and not href.startswith("http"):
+            href = f"https://finance.naver.com{href}"
+        info_el = row.select_one("td.info")
+        source = info_el.get_text(strip=True) if info_el else ""
+        date_el = row.select_one("td.date")
+        date_text = date_el.get_text(strip=True) if date_el else ""
+
+        articles.append({
+            "title": title,
+            "date": date_text,
+            "source": source,
+            "url": href,
+        })
+        if len(articles) >= count:
+            break
+
+    _cache[cache_key] = articles
+    return articles
+
+
+# ---------------------------------------------------------------------------
+# 상한가 / 급등 / 급락 감지
+# ---------------------------------------------------------------------------
+
+def detect_limit_up_stocks(daily_df: pd.DataFrame, threshold: float = 29.0) -> pd.DataFrame:
+    """상한가 근접 종목 (등락률 >= threshold%)."""
+    if daily_df.empty or "등락률" not in daily_df.columns:
+        return pd.DataFrame()
+    mask = daily_df["등락률"] >= threshold
+    return daily_df[mask].sort_values("등락률", ascending=False).copy()
+
+
+def detect_sharp_drop_stocks(
+    daily_df: pd.DataFrame, threshold: float = -10.0, sector_keyword: str = ""
+) -> pd.DataFrame:
+    """급락 종목 (등락률 <= threshold%). sector_keyword가 있으면 해당 업종만 필터."""
+    if daily_df.empty or "등락률" not in daily_df.columns:
+        return pd.DataFrame()
+    mask = daily_df["등락률"] <= threshold
+    result = daily_df[mask].sort_values("등락률", ascending=True).copy()
+    if sector_keyword and "업종" in result.columns:
+        result = result[result["업종"].str.contains(sector_keyword, na=False, case=False)]
+    return result
+
+
+def detect_volume_spike_stocks(daily_df: pd.DataFrame, min_change: float = 3.0) -> pd.DataFrame:
+    """거래대금 기반 이상 급등 종목 (등락률 >= min_change%)."""
+    if daily_df.empty:
+        return pd.DataFrame()
+    mask = (daily_df["등락률"] >= min_change) & (daily_df.get("거래대금", pd.Series(dtype=float)) > 0)
+    result = daily_df[mask].sort_values("거래대금", ascending=False).copy()
+    return result.head(50)

@@ -31,6 +31,20 @@ from components.supply_flow import render_supply_flow
 
 from components.rising_stocks import render_rising_stocks
 from components.smart_picks import render_smart_top3
+from components.market_regime import render_market_regime
+from components.pair_trading import render_pair_trading
+from components.smart_money import render_smart_money
+from components.event_radar import render_event_radar
+
+# ── 신규: 5-Type 트레이더 탭 + 공통 상세 + 매매일지 ──
+from components.tab_type_a import render_tab_type_a
+from components.tab_type_b import render_tab_type_b
+from components.tab_type_c import render_tab_type_c
+from components.tab_type_d import render_tab_type_d
+from components.tab_type_e import render_tab_type_e
+from components.stock_detail_common import render_stock_detail_common
+from components.trading_journal import render_trading_journal
+from logic_market_regime import calc_market_regime, suggest_position_size
 
 # ===========================================================================
 # 페이지 설정
@@ -351,13 +365,15 @@ if st.session_state.get("load_data"):
                 st.info("하락 종목이 없습니다.")
 
     # ===================================================================
-    # 탭 구성: 기관·외국인 수급 / 섹터 히트맵 / 상승 종목 분석 / 오늘의 발굴 종목 / 종목 상세
+    # 탭 구성: 수급 / 섹터 / 상승종목 / 발굴 / 트레이더(5유형) / 일지 / 상세
     # ===================================================================
-    tab0, tab1, tab2, tab3, tab4 = st.tabs([
+    tab0, tab1, tab2, tab3, tab_trader, tab_journal, tab4 = st.tabs([
         "🏛️ 수급",
         "🗺️ 섹터",
         "📊 상승종목",
         "🔥 발굴",
+        "🎯 트레이더",
+        "📓 매매일지",
         "📈 상세",
     ])
 
@@ -415,9 +431,85 @@ if st.session_state.get("load_data"):
         else:
             st.info("기관/외국인 쌍끌이 순매수 종목이 없습니다.")
 
-    # --- 탭 4: 종목 상세 ---
+    # --- 탭 트레이더: 5-Type 매매 유형별 대시보드 ---
+    with tab_trader:
+        # ─── 상단 시장 국면 요약 + PnL 비중 조절 ─────────────────
+        regime = calc_market_regime(daily_df)
+        pnl_history = st.session_state.get("pnl_history", [])
+
+        sizing = suggest_position_size(regime, pnl_history)
+
+        regime_col, sizing_col, pnl_col = st.columns([2, 2, 1])
+        with regime_col:
+            st.markdown(
+                f'<div style="background:{regime["color"]}15; border:2px solid {regime["color"]}; '
+                f'border-radius:12px; padding:12px; text-align:center;">'
+                f'<div style="font-size:0.8em; color:#64748b;">시장 국면</div>'
+                f'<div style="font-size:1.8em; font-weight:800; color:{regime["color"]};">'
+                f'{regime["label"]}</div>'
+                f'<div style="font-size:0.78em; color:#64748b;">'
+                f'거래대금 {regime["total_tv_조"]:.1f}조 · 상승비율 {regime["up_ratio"]:.0f}% · '
+                f'점수 {regime["score"]:.0f}/100</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with sizing_col:
+            st.markdown(
+                f'<div style="background:#fff; border:2px solid {sizing["grade_color"]}; '
+                f'border-radius:12px; padding:12px; text-align:center;">'
+                f'<div style="font-size:0.8em; color:#64748b;">권장 배팅 비중</div>'
+                f'<div style="font-size:2.2em; font-weight:800; color:{sizing["grade_color"]};">'
+                f'{sizing["final_pct"]}%</div>'
+                f'<div style="font-size:0.85em; font-weight:600; color:{sizing["grade_color"]};">'
+                f'{sizing["grade"]}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with pnl_col:
+            st.markdown("**PnL 입력**")
+            new_pnl = st.number_input("오늘 손익(%)", value=0.0, step=0.5, key="daily_pnl_input")
+            if st.button("기록", key="pnl_record", use_container_width=True):
+                if "pnl_history" not in st.session_state:
+                    st.session_state["pnl_history"] = []
+                st.session_state["pnl_history"].insert(0, new_pnl)
+                st.rerun()
+
+        if sizing.get("pnl_warning"):
+            st.warning(sizing["pnl_warning"])
+
+        st.markdown(f"<div style='font-size:0.78em; color:#64748b; text-align:center; margin:4px 0;'>"
+                    f"📋 {sizing['reason']}</div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ─── 5-Type 탭 ─────────────────────────────────────────
+        tt_a, tt_b, tt_c, tt_d, tt_e, tt_regime = st.tabs([
+            "🏆 A:테마추격",
+            "📰 B:뉴스스파이크",
+            "📈 C:돌파매매",
+            "🧬 D:바이오회복",
+            "⚡ E:스윙·포지션",
+            "📊 시장국면상세",
+        ])
+        with tt_a:
+            render_tab_type_a(daily_df, date_str)
+        with tt_b:
+            render_tab_type_b(daily_df, date_str)
+        with tt_c:
+            render_tab_type_c(daily_df, date_str)
+        with tt_d:
+            render_tab_type_d(daily_df, date_str)
+        with tt_e:
+            render_tab_type_e(daily_df, date_str)
+        with tt_regime:
+            render_market_regime(daily_df)
+
+    # --- 탭 매매일지 ---
+    with tab_journal:
+        render_trading_journal(daily_df, date_str)
+
+    # --- 탭 4: 종목 상세 (공통 상세 + 메모/플랜 포함) ---
     with tab4:
-        # 직접 입력 또는 테이블에서 선택
         col_a, col_b = st.columns([1, 2])
         with col_a:
             manual_ticker = st.text_input(
@@ -432,7 +524,8 @@ if st.session_state.get("load_data"):
         detail_ticker = manual_ticker or st.session_state.get("selected_ticker")
 
         if detail_ticker:
-            render_detail_view(detail_ticker, date_str)
+            # 공통 상세 (캔들+MA+수급+메모/매매유형 체크)
+            render_stock_detail_common(detail_ticker, date_str, context="main_detail")
         else:
             st.info(
                 "💡 '오늘의 발굴 종목' 탭에서 종목을 선택하거나, "
@@ -472,6 +565,16 @@ else:
                 <div style="font-size:1.6em;">📈</div>
                 <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">종목 상세 차트</div>
                 <div style="font-size:0.78em; color:#64748b; margin-top:4px;">캔들 + 수급 + 실적</div>
+            </div>
+            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
+                <div style="font-size:1.6em;">🎯</div>
+                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">트레이더 5-Type</div>
+                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">테마·뉴스·돌파·바이오·스윙</div>
+            </div>
+            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
+                <div style="font-size:1.6em;">📓</div>
+                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">매매 일지</div>
+                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">기록·복기·유형별통계</div>
             </div>
         </div>
         """,
