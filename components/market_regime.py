@@ -189,6 +189,7 @@ def _render_theme_map(daily_df: pd.DataFrame):
                     if not const_df.empty:
                         display_df = const_df.head(10)
                         for _, stock in display_df.iterrows():
+                            price = stock.get("현재가", 0)
                             chg = stock.get("등락률", 0)
                             chg_color = "#dc2626" if chg > 0 else "#2563eb" if chg < 0 else "#6b7280"
                             chg_sign = "+" if chg > 0 else ""
@@ -196,8 +197,10 @@ def _render_theme_map(daily_df: pd.DataFrame):
                                 f'<div style="display:flex; justify-content:space-between; '
                                 f'padding:4px 0; border-bottom:1px solid #f1f5f9; font-size:0.85em;">'
                                 f'<span style="color:#1e293b;">{stock["종목명"]}</span>'
-                                f'<span style="color:{chg_color}; font-weight:600;">'
-                                f'{chg_sign}{chg:.2f}%</span></div>',
+                                f'<span>'
+                                f'<span style="color:#1e293b; font-weight:600;">{price:,}원</span>'
+                                f'&nbsp;<span style="color:{chg_color}; font-size:0.85em;">'
+                                f'{chg_sign}{chg:.2f}%</span></span></div>',
                                 unsafe_allow_html=True,
                             )
                     else:
