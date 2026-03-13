@@ -23,6 +23,12 @@ from data.fetcher import (
     smart_load_daily_data,
     get_index_ohlcv,
 )
+from data.scheduler import (
+    start_scheduler,
+    get_cached_data,
+    get_data_status,
+    is_refreshing,
+)
 from analysis.screening import screen_by_supply, add_chart_status, run_full_screening, apply_technical_filters
 from components.sidebar import render_sidebar
 from components.heatmap import render_sector_heatmap, render_sector_bar_chart
@@ -234,7 +240,12 @@ volume_surge_only = config["volume_surge"]
 top_n = config["top_n"]
 
 # ===========================================================================
-# 데이터 로딩 (캐시 활용)
+# 백그라운드 데이터 갱신 스케줄러 (10분 간격)
+# ===========================================================================
+start_scheduler(date_str, market, supply_days)
+
+# ===========================================================================
+# 데이터 로딩 (스케줄러 우선 → 캐시 → API 순)
 # ===========================================================================
 
 @st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
@@ -258,8 +269,29 @@ if st.sidebar.button("🚀 데이터 로드 & 분석 시작", use_container_widt
     run_screening.clear()
     st.session_state["load_data"] = True
 
+# 스케줄러 상태 표시 (사이드바)
+_sched_status = get_data_status()
+if _sched_status["has_data"]:
+    _upd = _sched_status["updated_at"]
+    _upd_str = _upd.strftime("%H:%M:%S") if _upd else "-"
+    _indicator = "🟢" if not _sched_status["is_refreshing"] else "🟡 갱신중"
+    st.sidebar.caption(
+        f"{_indicator} 자동갱신 | 최신: {_upd_str} | "
+        f"{_sched_status['stock_count']:,}종목 | "
+        f"{'장중' if _sched_status['is_market_hours'] else '장마감'}"
+    )
+else:
+    if _sched_status["is_refreshing"]:
+        st.sidebar.caption("🟡 최초 데이터 준비 중...")
+
 if st.session_state.get("load_data"):
-    daily_df = load_daily_data_cached(date_str, market, supply_days)
+    # 스케줄러에 이미 데이터가 있으면 즉시 사용
+    _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
+    if (_cached_df is not None and not _cached_df.empty
+            and _cached_date == date_str and _cached_market == market):
+        daily_df = _cached_df
+    else:
+        daily_df = load_daily_data_cached(date_str, market, supply_days)
 
     if daily_df.empty:
         st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
