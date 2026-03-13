@@ -3,8 +3,11 @@
 - 일별 시장 요약 로그
 - 매매 기록 (유형 A-E 분류)
 - 유형별 매매 횟수 · 승률 통계
+- JSON 파일 영속 저장 (세션 종료 후에도 유지)
 """
 
+import json
+import os
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
@@ -12,6 +15,59 @@ from datetime import datetime
 
 
 _JOURNAL_KEY = "trading_journal"
+_JOURNAL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "journal_data")
+_JOURNAL_FILE = os.path.join(_JOURNAL_DIR, "trading_journal.json")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 영속 저장/로드
+# ─────────────────────────────────────────────────────────────────────
+
+def _ensure_dir():
+    os.makedirs(_JOURNAL_DIR, exist_ok=True)
+
+
+def _load_journal() -> list:
+    """JSON 파일에서 매매 기록을 로드."""
+    if os.path.exists(_JOURNAL_FILE):
+        try:
+            with open(_JOURNAL_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+        except (json.JSONDecodeError, IOError):
+            pass
+    return []
+
+
+def _save_journal(entries: list):
+    """매매 기록을 JSON 파일에 저장."""
+    _ensure_dir()
+    with open(_JOURNAL_FILE, "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+
+
+def _get_entries() -> list:
+    """세션 + 파일 동기화. 세션에 없으면 파일에서 로드."""
+    if _JOURNAL_KEY not in st.session_state:
+        st.session_state[_JOURNAL_KEY] = _load_journal()
+    return st.session_state[_JOURNAL_KEY]
+
+
+def _add_entry(entry: dict):
+    """기록 추가 후 파일 저장."""
+    entries = _get_entries()
+    entries.append(entry)
+    st.session_state[_JOURNAL_KEY] = entries
+    _save_journal(entries)
+
+
+def _delete_entry(timestamp: str):
+    """타임스탬프 기준 기록 삭제 후 파일 저장."""
+    entries = _get_entries()
+    entries = [e for e in entries if e.get("timestamp") != timestamp]
+    st.session_state[_JOURNAL_KEY] = entries
+    _save_journal(entries)
 
 
 def render_trading_journal(daily_df: pd.DataFrame, date_str: str):
@@ -19,8 +75,8 @@ def render_trading_journal(daily_df: pd.DataFrame, date_str: str):
     st.markdown("## 📓 매매 일지 & 복기")
     st.caption("일별 시장 요약 · 매매 기록 · 유형별 통계")
 
-    if _JOURNAL_KEY not in st.session_state:
-        st.session_state[_JOURNAL_KEY] = []
+    # 파일에서 로드 (최초 1회)
+    _get_entries()
 
     tab_log, tab_add, tab_stats = st.tabs(["📋 일지 목록", "➕ 기록 추가", "📊 통계"])
 
@@ -82,7 +138,7 @@ def _render_add_entry(daily_df: pd.DataFrame, date_str: str):
                 "market_memo": market_memo,
                 "trade_memo": trade_memo,
             }
-            st.session_state[_JOURNAL_KEY].append(entry)
+            _add_entry(entry)
             st.success(f"✅ 매매 기록이 추가되었습니다. ({ticker} {direction})")
 
 
@@ -91,7 +147,7 @@ def _render_journal_list():
     """매매 일지 리스트."""
     st.markdown("### 📋 매매 일지")
 
-    entries = st.session_state.get(_JOURNAL_KEY, [])
+    entries = _get_entries()
     if not entries:
         st.info("등록된 매매 기록이 없습니다.")
         return
@@ -108,25 +164,33 @@ def _render_journal_list():
         }
         icon, color = result_map.get(entry["result"], ("⚪", "#6b7280"))
 
-        st.markdown(
-            f'<div style="background:#fff; border-radius:10px; padding:10px 14px; '
-            f'border-left:4px solid {color}; margin-bottom:6px;">'
-            f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-            f'<div>'
-            f'<span style="font-weight:700;">{icon} {entry["ticker"]}</span>'
-            f'<span style="background:#e2e8f0; padding:1px 6px; border-radius:4px; '
-            f'font-size:0.68em; margin-left:6px;">{entry["trade_type_label"]}</span>'
-            f'<span style="color:#94a3b8; font-size:0.75em; margin-left:6px;">{entry["direction"]}</span>'
-            f'</div>'
-            f'<span style="color:{color}; font-weight:600; font-size:0.85em;">{entry["result"]}</span>'
-            f'</div>'
-            f'<div style="font-size:0.78em; color:#64748b; margin-top:4px;">'
-            f'{entry["date"]} · {entry["price"]:,.0f}원 × {entry["quantity"]}주'
-            f'</div>'
-            f'{"<div style=font-size:0.78em;color:#475569;margin-top:4px;>" + entry["trade_memo"] + "</div>" if entry.get("trade_memo") else ""}'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        _card_col, _del_col = st.columns([12, 1])
+        with _card_col:
+            _memo = entry.get("trade_memo", "") or ""
+            _memo_html = f'<div style="font-size:0.78em;color:#475569;margin-top:4px;">{_memo}</div>' if _memo else ""
+            st.markdown(
+                f'<div style="background:#fff; border-radius:10px; padding:10px 14px; '
+                f'border-left:4px solid {color}; margin-bottom:6px;">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                f'<div>'
+                f'<span style="font-weight:700;">{icon} {entry["ticker"]}</span>'
+                f'<span style="background:#e2e8f0; padding:1px 6px; border-radius:4px; '
+                f'font-size:0.68em; margin-left:6px;">{entry["trade_type_label"]}</span>'
+                f'<span style="color:#94a3b8; font-size:0.75em; margin-left:6px;">{entry["direction"]}</span>'
+                f'</div>'
+                f'<span style="color:{color}; font-weight:600; font-size:0.85em;">{entry["result"]}</span>'
+                f'</div>'
+                f'<div style="font-size:0.78em; color:#64748b; margin-top:4px;">'
+                f'{entry["date"]} · {entry["price"]:,.0f}원 × {entry["quantity"]}주'
+                f'</div>'
+                f'{_memo_html}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with _del_col:
+            if st.button("🗑", key=f"del_journal_{i}", help="이 기록 삭제"):
+                _delete_entry(entry.get("timestamp", ""))
+                st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -134,7 +198,7 @@ def _render_journal_stats():
     """매매 통계."""
     st.markdown("### 📊 매매 유형별 통계")
 
-    entries = st.session_state.get(_JOURNAL_KEY, [])
+    entries = _get_entries()
     if not entries:
         st.info("통계를 표시할 매매 기록이 없습니다.")
         return
