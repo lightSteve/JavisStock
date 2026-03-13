@@ -276,13 +276,14 @@ def _render_anomaly_card(res: dict):
 # 메인 렌더링 함수
 # ---------------------------------------------------------------------------
 
-def render_smart_top3(daily_df: pd.DataFrame, date: str):
+def render_smart_top3(daily_df: pd.DataFrame, date: str, precomputed: list = None):
     """
     멀티팩터 점수 기반 Top 3 종목 카드 + 수급 추이 차트 렌더링.
 
     - 수급 양호 상위 30 종목 대상으로 점수 계산
     - Top 3 를 카드 + Plotly 차트로 표시
     - 소외주 반등 감지 종목 별도 알림
+    - precomputed: 스케줄러가 사전 계산한 결과 리스트 (있으면 API 호출 스킵)
     """
     st.markdown("## 🏆 AI 스마트 TOP 3")
     st.caption("수급 강도 40% · 가격 모멘텀 30% · 거래량 급증 30% 가중 합산")
@@ -291,27 +292,32 @@ def render_smart_top3(daily_df: pd.DataFrame, date: str):
         st.info("데이터가 없습니다.")
         return
 
-    # 수급 후보 필터링 (기관 or 외인 순매수 양수)
-    has_inst = daily_df.get("기관합계_5일", pd.Series(dtype=float)).fillna(0)
-    has_frgn = daily_df.get("외국인합계_5일", pd.Series(dtype=float)).fillna(0)
-    supply_mask = (has_inst > 0) | (has_frgn > 0)
-    candidates = daily_df[supply_mask].copy()
+    # 사전 계산된 결과가 있으면 바로 사용
+    if precomputed:
+        results = precomputed
+        st.caption("⚡ 사전 분석 데이터 사용 (즉시 로드)")
+    else:
+        # 수급 후보 필터링 (기관 or 외인 순매수 양수)
+        has_inst = daily_df.get("기관합계_5일", pd.Series(dtype=float)).fillna(0)
+        has_frgn = daily_df.get("외국인합계_5일", pd.Series(dtype=float)).fillna(0)
+        supply_mask = (has_inst > 0) | (has_frgn > 0)
+        candidates = daily_df[supply_mask].copy()
 
-    if candidates.empty:
-        st.info("수급 양호 종목이 없습니다. 먼저 데이터를 로드해주세요.")
-        return
+        if candidates.empty:
+            st.info("수급 양호 종목이 없습니다. 먼저 데이터를 로드해주세요.")
+            return
 
-    # 수급 합계 상위 30개만 점수 계산 (API 부하 방지)
-    candidates["_supply_sum"] = has_inst[supply_mask] + has_frgn[supply_mask]
-    pool = candidates.nlargest(30, "_supply_sum")
+        # 수급 합계 상위 30개만 점수 계산 (API 부하 방지)
+        candidates["_supply_sum"] = has_inst[supply_mask] + has_frgn[supply_mask]
+        pool = candidates.nlargest(30, "_supply_sum")
 
-    with st.spinner("📊 멀티팩터 점수 계산 중… (최대 30종목 분석)"):
-        results = []
-        for ticker, row in pool.iterrows():
-            res = _fetch_and_score(ticker, date, row)
-            if res is not None:
-                results.append(res)
-            time.sleep(0.1)
+        with st.spinner("📊 멀티팩터 점수 계산 중… (최대 30종목 분석)"):
+            results = []
+            for ticker, row in pool.iterrows():
+                res = _fetch_and_score(ticker, date, row)
+                if res is not None:
+                    results.append(res)
+                time.sleep(0.1)
 
     if not results:
         st.warning("점수를 계산할 수 있는 종목이 없습니다.")

@@ -28,6 +28,9 @@ from data.scheduler import (
     get_cached_data,
     get_data_status,
     is_refreshing,
+    get_cached_smart_top3,
+    get_cached_screened,
+    is_analysis_ready,
 )
 from analysis.screening import screen_by_supply, add_chart_status, run_full_screening, apply_technical_filters
 from components.sidebar import render_sidebar
@@ -275,10 +278,12 @@ if _sched_status["has_data"]:
     _upd = _sched_status["updated_at"]
     _upd_str = _upd.strftime("%H:%M:%S") if _upd else "-"
     _indicator = "🟢" if not _sched_status["is_refreshing"] else "🟡 갱신중"
+    _analysis_icon = "✅" if _sched_status.get("has_analysis") else "⏳"
     st.sidebar.caption(
         f"{_indicator} 자동갱신 | 최신: {_upd_str} | "
         f"{_sched_status['stock_count']:,}종목 | "
-        f"{'장중' if _sched_status['is_market_hours'] else '장마감'}"
+        f"{'장중' if _sched_status['is_market_hours'] else '장마감'} | "
+        f"분석{_analysis_icon}"
     )
 else:
     if _sched_status["is_refreshing"]:
@@ -484,7 +489,8 @@ if st.session_state.get("load_data"):
     # --- 탭 3: 오늘의 발굴 종목 ---
     with tab3:
         # ── AI 스마트 Top 3 (멀티팩터 점수 기반) ──
-        render_smart_top3(daily_df, date_str)
+        _cached_top3 = get_cached_smart_top3(date_str)
+        render_smart_top3(daily_df, date_str, precomputed=_cached_top3 or None)
 
         st.markdown("---")
 
@@ -493,15 +499,13 @@ if st.session_state.get("load_data"):
 
         st.markdown("---")
 
-        # 수급 필터링
-        supply_filtered = screen_by_supply(daily_df)
+        # 수급 필터링 → 사전 분석 결과 우선 사용
+        _cached_screened = get_cached_screened(date_str)
+        if _cached_screened is not None and not _cached_screened.empty:
+            screened = _cached_screened
+            st.caption("⚡ 기술적 지표: 사전 분석 데이터 사용")
 
-        if not supply_filtered.empty:
-            # 차트 + 기술적 지표 분석 (수급 TOP 종목 대상)
-            with st.spinner("📊 차트 + 기술 지표 분석 중... (수급 상위 종목 대상)"):
-                screened = add_chart_status(supply_filtered.head(top_n * 2), date_str)
-
-            # 기술적 필터 적용 (차트상태 + RSI + MACD + 볼린저 + 거래량)
+            # 기술적 필터 적용
             screened = apply_technical_filters(
                 screened,
                 chart_filter=chart_filter,
@@ -512,11 +516,30 @@ if st.session_state.get("load_data"):
             )
 
             selected_ticker = render_screened_table(screened, top_n)
-
             if selected_ticker:
                 st.session_state["selected_ticker"] = selected_ticker
         else:
-            st.info("기관/외국인 쌍끌이 순매수 종목이 없습니다.")
+            # 캐시 없으면 기존 방식으로 실시간 분석
+            supply_filtered = screen_by_supply(daily_df)
+
+            if not supply_filtered.empty:
+                with st.spinner("📊 차트 + 기술 지표 분석 중... (수급 상위 종목 대상)"):
+                    screened = add_chart_status(supply_filtered.head(top_n * 2), date_str)
+
+                screened = apply_technical_filters(
+                    screened,
+                    chart_filter=chart_filter,
+                    rsi_filter=rsi_filter,
+                    macd_filter=macd_filter,
+                    bb_filter=bb_filter,
+                    volume_surge_only=volume_surge_only,
+                )
+
+                selected_ticker = render_screened_table(screened, top_n)
+                if selected_ticker:
+                    st.session_state["selected_ticker"] = selected_ticker
+            else:
+                st.info("기관/외국인 쌍끌이 순매수 종목이 없습니다.")
 
     # --- 탭 트레이더: 5-Type 매매 유형별 대시보드 ---
     with tab_trader:

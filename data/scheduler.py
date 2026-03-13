@@ -5,13 +5,14 @@
 - 장중(09:00~16:00)에만 API 호출, 장 마감 후에는 스냅샷 재사용
 - 스레드 안전한 데이터 저장소 제공
 - API 제한/블록 방지를 위한 보수적 간격 적용
+- 발굴/트레이더 탭 사전 분석 (smart_top3, 기술적 지표, 프로그램매매, 테마)
 """
 
 import threading
 import time
 import logging
 import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 import pandas as pd
 
@@ -79,8 +80,91 @@ class _DataStore:
             return True
 
 
+class _AnalysisStore:
+    """발굴/트레이더 탭용 사전 분석 결과를 스레드 안전하게 보관."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._smart_top3: List[Dict[str, Any]] = []
+        self._screened_df: Optional[pd.DataFrame] = None
+        self._program_trading: Optional[pd.DataFrame] = None
+        self._theme_list: Optional[pd.DataFrame] = None
+        self._date: str = ""
+        self._updated_at: Optional[datetime.datetime] = None
+        self._is_analyzing: bool = False
+
+    def put_smart_top3(self, results: list, date: str):
+        with self._lock:
+            self._smart_top3 = results
+            self._date = date
+            self._updated_at = datetime.datetime.now()
+
+    def get_smart_top3(self, date: str = "") -> list:
+        with self._lock:
+            if date and self._date != date:
+                return []
+            return list(self._smart_top3)
+
+    def put_screened(self, df: pd.DataFrame, date: str):
+        with self._lock:
+            self._screened_df = df
+            self._date = date
+
+    def get_screened(self, date: str = "") -> Optional[pd.DataFrame]:
+        with self._lock:
+            if date and self._date != date:
+                return None
+            if self._screened_df is not None:
+                return self._screened_df.copy()
+            return None
+
+    def put_program_trading(self, df: pd.DataFrame):
+        with self._lock:
+            self._program_trading = df
+
+    def get_program_trading(self) -> Optional[pd.DataFrame]:
+        with self._lock:
+            if self._program_trading is not None:
+                return self._program_trading.copy()
+            return None
+
+    def put_theme_list(self, df: pd.DataFrame):
+        with self._lock:
+            self._theme_list = df
+
+    def get_theme_list(self) -> Optional[pd.DataFrame]:
+        with self._lock:
+            if self._theme_list is not None:
+                return self._theme_list.copy()
+            return None
+
+    @property
+    def is_analyzing(self) -> bool:
+        with self._lock:
+            return self._is_analyzing
+
+    @is_analyzing.setter
+    def is_analyzing(self, val: bool):
+        with self._lock:
+            self._is_analyzing = val
+
+    @property
+    def updated_at(self) -> Optional[datetime.datetime]:
+        with self._lock:
+            return self._updated_at
+
+    def has_analysis(self, date: str = "") -> bool:
+        with self._lock:
+            if not self._smart_top3 and self._screened_df is None:
+                return False
+            if date and self._date != date:
+                return False
+            return True
+
+
 # 글로벌 데이터 저장소 (Streamlit 프로세스 생존 주기 동안 유지)
 _store = _DataStore()
+_analysis = _AnalysisStore()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -134,12 +218,141 @@ def _do_refresh(date: str, market: str, supply_days: int):
         _store.is_refreshing = False
 
 
+def _do_analysis(date: str):
+    """daily_df 기반 발굴/트레이더 사전 분석 (백그라운드)."""
+    try:
+        _analysis.is_analyzing = True
+        logger.info("[Scheduler] 사전 분석 시작 (발굴/트레이더)")
+
+        df, stored_date, _, _ = _store.get()
+        if df is None or df.empty:
+            logger.warning("[Scheduler] 분석 스킵: daily_df 없음")
+            return
+
+        # ── 1) Smart Top 3: 수급 상위 30종목 점수 계산 ──
+        _precompute_smart_top3(df, date)
+
+        # ── 2) 기술적 지표 스크리닝 (수급 상위 100종목) ──
+        _precompute_screened(df, date)
+
+        # ── 3) 프로그램 매매 데이터 (트레이더 Type C) ──
+        _precompute_program_trading()
+
+        # ── 4) 테마 목록 (트레이더 Type A) ──
+        _precompute_theme_list()
+
+        logger.info(
+            f"[Scheduler] 사전 분석 완료: "
+            f"{datetime.datetime.now().strftime('%H:%M:%S')}"
+        )
+    except Exception as e:
+        logger.error(f"[Scheduler] 사전 분석 실패: {e}")
+    finally:
+        _analysis.is_analyzing = False
+
+
+def _precompute_smart_top3(daily_df: pd.DataFrame, date: str):
+    """멀티팩터 점수 기반 Top 종목 사전 계산."""
+    from data.fetcher import get_stock_ohlcv_history, get_investor_trend_individual
+    from analysis.scoring import calc_composite_score, is_anomaly_neglected_rebound
+
+    logger.info("[Scheduler] Smart Top3 점수 계산 시작")
+
+    has_inst = daily_df.get("기관합계_5일", pd.Series(dtype=float)).fillna(0)
+    has_frgn = daily_df.get("외국인합계_5일", pd.Series(dtype=float)).fillna(0)
+    supply_mask = (has_inst > 0) | (has_frgn > 0)
+    candidates = daily_df[supply_mask].copy()
+
+    if candidates.empty:
+        _analysis.put_smart_top3([], date)
+        return
+
+    candidates["_supply_sum"] = has_inst[supply_mask] + has_frgn[supply_mask]
+    pool = candidates.nlargest(30, "_supply_sum")
+
+    end_dt = datetime.datetime.strptime(date, "%Y%m%d")
+    start_dt = end_dt - datetime.timedelta(days=80)
+    start_str = start_dt.strftime("%Y%m%d")
+
+    results = []
+    for ticker, row in pool.iterrows():
+        try:
+            ohlcv = get_stock_ohlcv_history(ticker, start_str, date)
+            investor = get_investor_trend_individual(ticker)
+        except Exception:
+            continue
+
+        if ohlcv.empty or len(ohlcv) < 5:
+            continue
+
+        score, details = calc_composite_score(ohlcv, investor)
+        results.append({
+            "ticker": ticker,
+            "name": str(row.get("종목명", ticker)),
+            "price": float(row.get("종가", 0)),
+            "change": float(row.get("등락률", 0)),
+            "sector": str(row.get("업종", "")),
+            "inst_5d": float(row.get("기관합계_5일", 0)),
+            "frgn_5d": float(row.get("외국인합계_5일", 0)),
+            "ohlcv": ohlcv,
+            "investor": investor,
+            "score": score,
+            "details": details,
+        })
+        time.sleep(0.1)
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    _analysis.put_smart_top3(results, date)
+    logger.info(f"[Scheduler] Smart Top3 완료: {len(results)}종목 점수 산출")
+
+
+def _precompute_screened(daily_df: pd.DataFrame, date: str):
+    """수급 스크리닝 + 기술적 지표 사전 계산."""
+    from analysis.screening import screen_by_supply, add_chart_status
+
+    logger.info("[Scheduler] 기술적 지표 스크리닝 시작")
+
+    supply_filtered = screen_by_supply(daily_df)
+    if supply_filtered.empty:
+        _analysis.put_screened(pd.DataFrame(), date)
+        return
+
+    # 상위 100종목까지 차트 분석 (대부분의 top_n 설정 커버)
+    top_n_stocks = supply_filtered.head(100)
+    screened = add_chart_status(top_n_stocks, date)
+    _analysis.put_screened(screened, date)
+    logger.info(f"[Scheduler] 스크리닝 완료: {len(screened)}종목 기술지표 산출")
+
+
+def _precompute_program_trading():
+    """프로그램 매매 데이터 사전 로드."""
+    from data.fetcher import get_program_trading_top
+
+    logger.info("[Scheduler] 프로그램 매매 데이터 로드")
+    prog_df = get_program_trading_top()
+    if not prog_df.empty:
+        _analysis.put_program_trading(prog_df)
+        logger.info(f"[Scheduler] 프로그램 매매 완료: {len(prog_df)}건")
+
+
+def _precompute_theme_list():
+    """테마 목록 사전 로드."""
+    from data.fetcher import get_theme_list
+
+    logger.info("[Scheduler] 테마 목록 로드")
+    theme_df = get_theme_list()
+    if not theme_df.empty:
+        _analysis.put_theme_list(theme_df)
+        logger.info(f"[Scheduler] 테마 목록 완료: {len(theme_df)}건")
+
+
 def _scheduler_loop(date: str, market: str, supply_days: int):
     """백그라운드 스케줄러 루프."""
     logger.info(f"[Scheduler] 스케줄러 시작 (간격: {REFRESH_INTERVAL_SEC}초)")
 
-    # 최초 즉시 갱신
+    # 최초 즉시 갱신: 데이터 → 분석
     _do_refresh(date, market, supply_days)
+    _do_analysis(date)
 
     while not _scheduler_stop.is_set():
         # 다음 갱신까지 대기 (stop 이벤트 체크하며)
@@ -149,6 +362,7 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
         # 장중에만 API 갱신, 장 마감 후에는 스킵
         if _is_market_hours():
             _do_refresh(date, market, supply_days)
+            _do_analysis(date)
         else:
             logger.info("[Scheduler] 장 마감 시간 — API 갱신 스킵")
 
@@ -220,4 +434,36 @@ def get_data_status() -> dict:
         "refresh_count": _store.refresh_count,
         "is_market_hours": _is_market_hours(),
         "stock_count": len(df) if df is not None else 0,
+        "has_analysis": _analysis.has_analysis(date or ""),
+        "is_analyzing": _analysis.is_analyzing,
+        "analysis_updated_at": _analysis.updated_at,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 사전 분석 결과 조회 API
+# ─────────────────────────────────────────────────────────────────────
+
+def get_cached_smart_top3(date: str = "") -> list:
+    """사전 계산된 Smart Top 3 결과 조회."""
+    return _analysis.get_smart_top3(date)
+
+
+def get_cached_screened(date: str = "") -> Optional[pd.DataFrame]:
+    """사전 계산된 기술적 지표 스크리닝 결과 조회."""
+    return _analysis.get_screened(date)
+
+
+def get_cached_program_trading() -> Optional[pd.DataFrame]:
+    """사전 로드된 프로그램 매매 데이터 조회."""
+    return _analysis.get_program_trading()
+
+
+def get_cached_theme_list() -> Optional[pd.DataFrame]:
+    """사전 로드된 테마 목록 조회."""
+    return _analysis.get_theme_list()
+
+
+def is_analysis_ready(date: str = "") -> bool:
+    """사전 분석이 완료되었는지 확인."""
+    return _analysis.has_analysis(date)
