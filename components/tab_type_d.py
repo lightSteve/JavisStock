@@ -41,7 +41,7 @@ def render_tab_type_d(daily_df: pd.DataFrame, date_str: str):
         "🗺️ 섹터 현황", "🔍 급락 스캐너", "📈 회복 종목"])
 
     with tab_overview:
-        _render_sector_overview(sector_summary)
+        _render_sector_overview(daily_df, sector_summary)
 
     with tab_scan:
         _render_sector_scanner(daily_df, sector_summary, date_str)
@@ -51,8 +51,8 @@ def render_tab_type_d(daily_df: pd.DataFrame, date_str: str):
 
 
 # ─────────────────────────────────────────────────────────────────────
-def _render_sector_overview(sector_summary: pd.DataFrame):
-    """전체 섹터 흐름 현황판."""
+def _render_sector_overview(daily_df: pd.DataFrame, sector_summary: pd.DataFrame):
+    """전체 섹터 흐름 현황판 + 섹터 클릭 시 종목 상세."""
     st.markdown("### 🗺️ 섹터별 현재 흐름")
 
     # 국면별 카운트
@@ -113,6 +113,107 @@ def _render_sector_overview(sector_summary: pd.DataFrame):
                     f'</div>',
                     unsafe_allow_html=True,
                 )
+
+    # ── 섹터 선택 → 종목 상세 ──
+    st.markdown("---")
+    all_sectors = sector_summary["섹터"].tolist()
+    selected_sector = st.selectbox(
+        "📂 섹터를 선택하면 소속 종목을 볼 수 있습니다",
+        [""] + all_sectors,
+        key="sector_overview_select",
+    )
+
+    if selected_sector and "업종" in daily_df.columns:
+        _render_sector_stock_detail(daily_df, sector_summary, selected_sector, phase_colors)
+
+
+# ─────────────────────────────────────────────────────────────────────
+def _render_sector_stock_detail(
+    daily_df: pd.DataFrame, sector_summary: pd.DataFrame,
+    sector: str, phase_colors: dict,
+):
+    """선택된 섹터의 소속 종목 상세 정보."""
+    sector_df = daily_df[daily_df["업종"] == sector].copy()
+    if sector_df.empty:
+        st.info(f"{sector} 섹터에 종목이 없습니다.")
+        return
+
+    # 섹터 메타 정보
+    sec_info = sector_summary[sector_summary["섹터"] == sector]
+    if not sec_info.empty:
+        row = sec_info.iloc[0]
+        phase = row["국면"]
+        p_color = phase_colors.get(phase, "#64748b")
+        st.markdown(
+            f'<div style="background:{p_color}10; border:1px solid {p_color}; '
+            f'border-radius:10px; padding:10px 14px; margin-bottom:10px;">'
+            f'<span style="font-weight:700; font-size:1.05em;">{sector}</span> '
+            f'<span style="color:{p_color}; font-weight:600; font-size:0.88em;">{phase}</span>'
+            f'<span style="color:#64748b; font-size:0.82em; margin-left:8px;">'
+            f'평균 {row["평균등락률"]:+.2f}% · {int(row["종목수"])}종목 · 상승비율 {row["상승비율"]:.0f}%</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # 등락률 순 정렬
+    sector_df = sector_df.sort_values("등락률", ascending=False)
+
+    # 요약 메트릭
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        up_cnt = int((sector_df["등락률"] > 0).sum())
+        st.metric("상승", f"{up_cnt}개")
+    with c2:
+        dn_cnt = int((sector_df["등락률"] < 0).sum())
+        st.metric("하락", f"{dn_cnt}개")
+    with c3:
+        best = sector_df.iloc[0]
+        best_name = best.get("종목명", sector_df.index[0])
+        st.metric(f"🔥 1위 {best_name}", f"{best['등락률']:+.2f}%")
+    with c4:
+        total_tv = sector_df["거래대금"].sum() / 1e8 if "거래대금" in sector_df.columns else 0
+        st.metric("합산 거래대금", f"{total_tv:,.0f}억")
+
+    # 종목 테이블
+    display_cols = []
+    for c in ["종목명", "종가", "등락률", "거래대금", "거래량"]:
+        if c in sector_df.columns:
+            display_cols.append(c)
+
+    show_df = sector_df[display_cols].copy()
+    if "거래대금" in show_df.columns:
+        show_df["거래대금"] = (show_df["거래대금"] / 1e8).round(1).astype(str) + "억"
+    if "종가" in show_df.columns:
+        show_df["종가"] = show_df["종가"].apply(lambda x: f"{int(x):,}")
+    if "등락률" in show_df.columns:
+        show_df["등락률"] = show_df["등락률"].apply(lambda x: f"{x:+.2f}%")
+    if "거래량" in show_df.columns:
+        show_df["거래량"] = show_df["거래량"].apply(lambda x: f"{int(x):,}")
+
+    st.dataframe(show_df, use_container_width=True, height=min(400, 35 * len(show_df) + 38))
+
+    # 상위 종목 카드 (상승 TOP 5)
+    top5 = sector_df.head(5)
+    st.markdown("**상승 상위 종목**")
+    for ticker, srow in top5.iterrows():
+        name = srow.get("종목명", ticker)
+        change = srow.get("등락률", 0)
+        price = srow.get("종가", 0)
+        tv = srow.get("거래대금", 0) / 1e8
+        card_color = "#dc2626" if change > 0 else "#2563eb" if change < 0 else "#64748b"
+        st.markdown(
+            f'<div style="background:#fff; border-radius:8px; padding:6px 10px; '
+            f'border-left:3px solid {card_color}; margin-bottom:4px;">'
+            f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+            f'<span style="font-weight:700; font-size:0.85em;">{name}'
+            f'<span style="color:#94a3b8; font-size:0.72em; margin-left:4px;">{ticker}</span></span>'
+            f'<span style="color:{card_color}; font-weight:700; font-size:0.88em;">{change:+.2f}%</span>'
+            f'</div>'
+            f'<div style="font-size:0.7em; color:#64748b;">'
+            f'{price:,.0f}원 · 거래대금 {tv:,.0f}억</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────
