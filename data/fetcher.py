@@ -947,10 +947,11 @@ def get_theme_constituents(theme_no: str) -> pd.DataFrame:
         if not tr:
             continue
         tds = tr.select("td")
-        price = _to_int(tds[1].get_text(strip=True)) if len(tds) > 1 else 0
-        change_text = tds[2].get_text(strip=True).replace("%", "").replace("+", "") if len(tds) > 2 else "0"
+        # 테이블 구조: N(0) | 종목명(1) | 현재가(2) | 전일비(3) | 등락률(4) | 매수호가(5) | 매도호가(6) | 거래량(7) | 거래대금(8)
+        price = _to_int(tds[2].get_text(strip=True)) if len(tds) > 2 else 0
+        change_text = tds[4].get_text(strip=True).replace("%", "").replace("+", "") if len(tds) > 4 else "0"
         change_val = _to_float(change_text)
-        tv = _to_int(tds[6].get_text(strip=True)) if len(tds) > 6 else 0
+        tv = _to_int(tds[8].get_text(strip=True)) if len(tds) > 8 else 0
 
         rows_data.append({
             "티커": ticker,
