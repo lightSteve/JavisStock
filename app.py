@@ -54,6 +54,7 @@ from components.tab_type_d import render_tab_type_d
 from components.tab_type_e import render_tab_type_e
 from components.stock_detail_common import render_stock_detail_common
 from components.trading_journal import render_trading_journal
+from components.strategy_picks import render_strategy_picks
 from logic_market_regime import calc_market_regime, suggest_position_size, check_market_rest_signal
 
 # ===========================================================================
@@ -593,12 +594,13 @@ if st.session_state.get("load_data"):
         st.markdown("---")
 
         # ─── 5-Type 탭 ─────────────────────────────────────────
-        tt_a, tt_b, tt_c, tt_d, tt_e, tt_regime = st.tabs([
+        tt_a, tt_b, tt_c, tt_d, tt_e, tt_strat, tt_regime = st.tabs([
             "🏆 A:테마추격",
             "📰 B:뉴스스파이크",
             "📈 C:돌파매매",
             "📊 D:섹터회복",
             "⚡ E:스윙·포지션",
+            "📋 전략추천",
             "📊 시장국면상세",
         ])
         with tt_a:
@@ -611,6 +613,8 @@ if st.session_state.get("load_data"):
             render_tab_type_d(daily_df, date_str)
         with tt_e:
             render_tab_type_e(daily_df, date_str)
+        with tt_strat:
+            render_strategy_picks(daily_df, date_str)
         with tt_regime:
             render_market_regime(daily_df)
 
