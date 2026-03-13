@@ -74,7 +74,9 @@ def _stock_card_grid(df: pd.DataFrame, badge: str, color: str):
             name = row.get("종목명", ticker)
             change = row.get("등락률", 0)
             tv = row.get("거래대금", 0) / 1e8
-            sector = row.get("업종", "")
+            sector = row.get("업종", "") or ""
+            if not isinstance(sector, str):
+                sector = ""
             st.markdown(
                 f'<div style="background:#fff; border-radius:12px; padding:10px; '
                 f'border-left:4px solid {color}; margin-bottom:6px; '
