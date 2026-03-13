@@ -55,6 +55,7 @@ from components.tab_type_e import render_tab_type_e
 from components.stock_detail_common import render_stock_detail_common
 from components.trading_journal import render_trading_journal
 from components.strategy_picks import render_strategy_picks
+from components.knee_stocks import render_knee_stocks
 from logic_market_regime import calc_market_regime, suggest_position_size, check_market_rest_signal
 
 # ===========================================================================
@@ -541,6 +542,11 @@ if st.session_state.get("load_data"):
                     st.session_state["selected_ticker"] = selected_ticker
             else:
                 st.info("기관/외국인 쌍끌이 순매수 종목이 없습니다.")
+
+        st.markdown("---")
+
+        # ── 무릎 아래: 저평가 가치주 발굴 ──
+        render_knee_stocks(daily_df, date_str)
 
     # --- 탭 트레이더: 5-Type 매매 유형별 대시보드 ---
     with tab_trader:
