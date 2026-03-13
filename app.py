@@ -230,6 +230,36 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── 21일의 법칙 ──
+st.markdown(
+    '<div style="background:linear-gradient(135deg,#fefce8,#fef9c3); '
+    'border:1px solid #fde68a; border-radius:12px; padding:12px 18px; '
+    'margin-bottom:14px;">'
+    '<div style="font-weight:700; font-size:0.92em; color:#92400e; '
+    'margin-bottom:8px;">🏆 수익을 만드는 21일의 법칙</div>'
+    '<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">'
+    '<div style="background:#fff; border-radius:10px; padding:10px; '
+    'border-left:3px solid #16a34a;">'
+    '<div style="font-weight:700; color:#16a34a; font-size:0.82em;">🚫 안 하기</div>'
+    '<div style="font-size:0.73em; color:#475569; margin-top:4px;">'
+    '뇌동매매와 오기 부리기를<br>단호히 거부하라.</div></div>'
+    '<div style="background:#fff; border-radius:10px; padding:10px; '
+    'border-left:3px solid #2563eb;">'
+    '<div style="font-weight:700; color:#2563eb; font-size:0.82em;">✅ 실행하기</div>'
+    '<div style="font-size:0.73em; color:#475569; margin-top:4px;">'
+    '복기와 시나리오 작성을<br>단 한 장이라도 매일 하라.</div></div>'
+    '<div style="background:#fff; border-radius:10px; padding:10px; '
+    'border-left:3px solid #7c3aed;">'
+    '<div style="font-weight:700; color:#7c3aed; font-size:0.82em;">⏳ 기다리기</div>'
+    '<div style="font-size:0.73em; color:#475569; margin-top:4px;">'
+    '본전만 지켜도 기회는 온다.<br>조급함은 최대의 적이다.</div></div>'
+    '</div>'
+    '<div style="font-size:0.7em; color:#92400e; margin-top:8px; text-align:center;">'
+    '⚠️ 지피지기 백전불태: 나의 약점을 기록하고, 그 약점을 하나씩 걷어내는 과정이 곧 수익이다.</div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
 # ===========================================================================
 # 사이드바 설정값
 # ===========================================================================

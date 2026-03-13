@@ -104,6 +104,30 @@ def render_sidebar() -> dict:
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(
+        '<div style="background:linear-gradient(135deg,#312e81,#4f46e5); '
+        'border-radius:12px; padding:14px 16px; margin-bottom:10px;">'
+        '<div style="font-size:0.82em; font-weight:700; color:#c7d2fe; '
+        'margin-bottom:6px;">\U0001f4dc Steve\uc758 \ud22c\uc790 \uba85\uc5b8</div>'
+        '<div style="font-size:0.78em; color:#e0e7ff; line-height:1.5;">'
+        '\ub611\uac19\uc740 \ub9e4\ub9e4\ub85c \uc783\ub294 \uac83\uc740 \uc2e4\ub825 \ubb38\uc81c\ub2e4.<br>'
+        '\uc790\uc2e0\uc5d0\uac8c \ub5b3\ub5b3\ud55c \ub178\ub825\uc744 \ud558\uace0 \uc788\ub294\uac00?</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        '<div style="background:linear-gradient(135deg,#312e81,#4f46e5); '
+        'border-radius:12px; padding:14px 16px; margin-bottom:10px;">'
+        '<div style="font-size:0.82em; font-weight:700; color:#c7d2fe; '
+        'margin-bottom:6px;">📜 Steve의 투자 명언</div>'
+        '<div style="font-size:0.78em; color:#e0e7ff; line-height:1.5;">'
+        '똑같은 매매로 잃는 것은 실력 문제다.<br>'
+        '자신에게 떳떳한 노력을 하고 있는가?</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(
         "<div style='text-align:center; color:gray; font-size:0.8em;'>"
         "TrendCatcher v2.0<br>Powered by Naver Finance & Streamlit"
         "</div>",
