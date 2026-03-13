@@ -250,6 +250,101 @@ def _calc_streak(arr: np.ndarray) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 종합지수 기반 "쉬어가기" 신호
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_market_rest_signal(index_df: pd.DataFrame) -> Dict:
+    """KOSPI/KOSDAQ 종합지수 데이터를 분석하여 '쉬어가기' 신호를 반환.
+
+    판단 기준:
+    1) 종가 < 20일 이동평균 (단기 하락 추세)
+    2) 20일 이평 < 60일 이평 (데드크로스 구간)
+    3) 최근 5일 연속 하락
+    4) 최근 5거래일 누적 수익률 -3% 이하 (급락)
+
+    Args:
+        index_df: 지수 일봉 DataFrame (columns: 종가, 등락률 등)
+
+    Returns:
+        dict:
+            should_rest   : bool  — True이면 쉬어가기 강력 권고
+            caution       : bool  — True이면 주의
+            level         : str   — "REST" / "CAUTION" / "OK"
+            reasons       : list[str] — 판단 근거 목록
+            score         : int   — 위험도 (0~100, 높을수록 위험)
+            ma20          : float
+            ma60          : float
+            current_price : float
+            weekly_return : float
+    """
+    result = {
+        "should_rest": False, "caution": False, "level": "OK",
+        "reasons": [], "score": 0,
+        "ma20": 0, "ma60": 0, "current_price": 0, "weekly_return": 0,
+    }
+
+    if index_df.empty or "종가" not in index_df.columns or len(index_df) < 5:
+        return result
+
+    close = index_df["종가"].astype(float)
+    current = float(close.iloc[-1])
+    result["current_price"] = current
+
+    # ── 이동평균 계산 ──
+    ma20 = float(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else 0
+    ma60 = float(close.rolling(60).mean().iloc[-1]) if len(close) >= 60 else 0
+    result["ma20"] = round(ma20, 2)
+    result["ma60"] = round(ma60, 2)
+
+    danger_score = 0
+    reasons = []
+
+    # 기준 1: 종가 < 20MA (단기 하락)
+    if ma20 > 0 and current < ma20:
+        danger_score += 25
+        pct_below = (ma20 - current) / ma20 * 100
+        reasons.append(f"종가가 20일 이평 아래 (-{pct_below:.1f}%)")
+
+    # 기준 2: 20MA < 60MA (데드크로스 구간)
+    if ma20 > 0 and ma60 > 0 and ma20 < ma60:
+        danger_score += 30
+        reasons.append("20일선이 60일선 아래 (데드크로스 구간)")
+
+    # 기준 3: 5일 연속 하락
+    recent_5 = close.tail(5)
+    if len(recent_5) == 5:
+        consecutive_down = all(
+            recent_5.iloc[i] < recent_5.iloc[i - 1] for i in range(1, 5)
+        )
+        if consecutive_down:
+            danger_score += 25
+            reasons.append("5거래일 연속 하락")
+
+    # 기준 4: 5일 누적 수익률 -3% 이하
+    if len(close) >= 6:
+        weekly_ret = (current / float(close.iloc[-6]) - 1) * 100
+        result["weekly_return"] = round(weekly_ret, 2)
+        if weekly_ret <= -3.0:
+            danger_score += 20
+            reasons.append(f"5거래일 수익률 {weekly_ret:.1f}% (급락)")
+        elif weekly_ret <= -1.5:
+            danger_score += 10
+            reasons.append(f"5거래일 수익률 {weekly_ret:.1f}% (약세)")
+
+    result["score"] = min(danger_score, 100)
+    result["reasons"] = reasons
+
+    if danger_score >= 50:
+        result["should_rest"] = True
+        result["level"] = "REST"
+    elif danger_score >= 25:
+        result["caution"] = True
+        result["level"] = "CAUTION"
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 20일 평균 거래대금 비교
 # ═══════════════════════════════════════════════════════════════════════════
 

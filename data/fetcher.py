@@ -458,6 +458,69 @@ def get_sector_info(date: str, market: str = "ALL") -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# 공개 API : KOSPI / KOSDAQ 지수 시세
+# ---------------------------------------------------------------------------
+
+def get_index_ohlcv(index_code: str = "KOSPI", count: int = 120) -> pd.DataFrame:
+    """
+    KOSPI 또는 KOSDAQ 종합지수 일봉 히스토리.
+    반환: index=날짜(DatetimeIndex), columns=[시가, 고가, 저가, 종가, 거래량, 등락률]
+    """
+    cache_key = f"index_ohlcv_{index_code}_{count}"
+    if cache_key in _cache:
+        cached = _cache[cache_key]
+        if isinstance(cached, pd.DataFrame) and not cached.empty:
+            return cached
+
+    all_data: List[Dict] = []
+    page = 1
+    page_size = min(count, 60)
+    while len(all_data) < count:
+        url = f"{NAVER_API}/index/{index_code}/price"
+        params = {"pageSize": page_size, "page": page}
+        try:
+            resp = _session.get(url, params=params, timeout=15)
+            resp.raise_for_status()
+            items = resp.json()
+        except Exception:
+            break
+        if not isinstance(items, list) or not items:
+            break
+        all_data.extend(items)
+        if len(items) < page_size:
+            break
+        page += 1
+        time.sleep(0.1)
+
+    if not all_data:
+        return pd.DataFrame()
+
+    rows = []
+    for d in all_data[:count]:
+        date_val = d.get("localTradedAt", "") or d.get("날짜", "")
+        if not date_val:
+            continue
+        rows.append({
+            "날짜": date_val,
+            "시가": _to_float(d.get("openPrice", 0)),
+            "고가": _to_float(d.get("highPrice", 0)),
+            "저가": _to_float(d.get("lowPrice", 0)),
+            "종가": _to_float(d.get("closePrice", 0)),
+            "거래량": _to_int(d.get("accumulatedTradingVolume", 0)),
+            "등락률": _to_float(d.get("fluctuationsRatio", 0)),
+        })
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["날짜"] = pd.to_datetime(df["날짜"])
+    df = df.set_index("날짜").sort_index()
+    _cache[cache_key] = df
+    return df
+
+
+# ---------------------------------------------------------------------------
 # 종합 데이터 빌더 (메인 파이프라인)
 # ---------------------------------------------------------------------------
 

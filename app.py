@@ -21,6 +21,7 @@ from data.fetcher import (
     save_daily_snapshot,
     list_available_snapshots,
     smart_load_daily_data,
+    get_index_ohlcv,
 )
 from analysis.screening import screen_by_supply, add_chart_status, run_full_screening, apply_technical_filters
 from components.sidebar import render_sidebar
@@ -44,7 +45,7 @@ from components.tab_type_d import render_tab_type_d
 from components.tab_type_e import render_tab_type_e
 from components.stock_detail_common import render_stock_detail_common
 from components.trading_journal import render_trading_journal
-from logic_market_regime import calc_market_regime, suggest_position_size
+from logic_market_regime import calc_market_regime, suggest_position_size, check_market_rest_signal
 
 # ===========================================================================
 # 페이지 설정
@@ -332,6 +333,60 @@ if st.session_state.get("load_data"):
         st.metric("🔴 상승 종목", f"{up_count:,}개")
     with summary_cols[3]:
         st.metric("🔵 하락 종목", f"{down_count:,}개")
+
+    # ─── 종합지수 기반 "쉬어가기" 신호 ──────────────────────────────
+    _kospi_index = get_index_ohlcv("KOSPI", 120)
+    _kosdaq_index = get_index_ohlcv("KOSDAQ", 120)
+    _rest_kospi = check_market_rest_signal(_kospi_index)
+    _rest_kosdaq = check_market_rest_signal(_kosdaq_index)
+
+    # 둘 중 더 위험한 쪽 기준
+    _rest_signals = []
+    for _idx_name, _rs in [("KOSPI", _rest_kospi), ("KOSDAQ", _rest_kosdaq)]:
+        if _rs["should_rest"] or _rs["caution"]:
+            _rest_signals.append((_idx_name, _rs))
+
+    if _rest_signals:
+        _worst = max(_rest_signals, key=lambda x: x[1]["score"])
+        _ws_name, _ws = _worst
+
+        if _ws["should_rest"]:
+            _banner_bg = "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)"
+            _banner_icon = "🛑"
+            _banner_title = "오늘은 거래를 쉬어가세요"
+            _banner_sub = "종합지수가 다수의 위험 신호를 보이고 있습니다. 무리한 매매는 큰 손실로 이어질 수 있습니다."
+        else:
+            _banner_bg = "linear-gradient(135deg, #d97706 0%, #92400e 100%)"
+            _banner_icon = "⚠️"
+            _banner_title = "시장 주의 구간"
+            _banner_sub = "종합지수 흐름이 불안정합니다. 신규 진입 시 비중을 줄이고 신중하게 접근하세요."
+
+        _detail_lines = ""
+        for _idx_name, _rs in _rest_signals:
+            _reasons_str = " / ".join(_rs["reasons"]) if _rs["reasons"] else "양호"
+            _price_str = f'{_rs["current_price"]:,.1f}' if _rs["current_price"] else "N/A"
+            _ma20_str = f'{_rs["ma20"]:,.1f}' if _rs["ma20"] else "-"
+            _ma60_str = f'{_rs["ma60"]:,.1f}' if _rs["ma60"] else "-"
+            _detail_lines += (
+                f'<div style="margin-top:6px; font-size:0.85em;">'
+                f'<b>{_idx_name}</b>: {_price_str} '
+                f'(20MA: {_ma20_str} / 60MA: {_ma60_str}) '
+                f'&mdash; {_reasons_str}'
+                f'</div>'
+            )
+
+        st.markdown(
+            f'<div style="background:{_banner_bg}; color:#fff; border-radius:14px; '
+            f'padding:18px 24px; margin:12px 0; box-shadow:0 4px 12px rgba(0,0,0,0.15);">'
+            f'<div style="font-size:1.6em; font-weight:800;">'
+            f'{_banner_icon} {_banner_title}</div>'
+            f'<div style="font-size:0.95em; margin-top:4px; opacity:0.95;">{_banner_sub}</div>'
+            f'{_detail_lines}'
+            f'<div style="margin-top:8px; font-size:0.75em; opacity:0.7;">'
+            f'위험도 점수: {_ws["score"]}/100</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
     # ─── 상승 / 하락 종목 리스트 ────────────────────────────────────
     list_col1, list_col2 = st.columns(2)
