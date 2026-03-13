@@ -302,6 +302,117 @@ def calc_recovery_stats(ohlcv: pd.DataFrame, crash_idx: int = -1) -> Dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Type D (확장): 전체 섹터 흐름 + 급락→회복 패턴
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SECTOR_PHASE_THRESHOLDS = {
+    "급락": -5.0,   # 평균 등락률 -5% 이하
+    "하락": -1.0,   # -5% ~ -1%
+    "회복": 2.0,    # -1% ~ +2%  (약한 양봉, 하락 후 반등)
+    "상승": 100.0,  # +2% 이상
+}
+
+
+def classify_sector_phase(avg_change: float) -> str:
+    """섹터 평균 등락률로 국면 분류."""
+    if avg_change <= _SECTOR_PHASE_THRESHOLDS["급락"]:
+        return "급락"
+    elif avg_change <= _SECTOR_PHASE_THRESHOLDS["하락"]:
+        return "하락"
+    elif avg_change <= _SECTOR_PHASE_THRESHOLDS["회복"]:
+        return "회복"
+    else:
+        return "상승"
+
+
+def analyze_all_sectors(daily_df: pd.DataFrame) -> pd.DataFrame:
+    """전체 섹터의 현재 흐름을 분석하여 요약 DataFrame을 반환.
+
+    Returns: DataFrame with columns:
+        섹터, 종목수, 평균등락률, 상승비율, 합산거래대금_억,
+        급락종목수, 회복종목수, 국면, 국면색상
+    """
+    if daily_df.empty or "업종" not in daily_df.columns:
+        return pd.DataFrame()
+
+    phase_meta = {
+        "급락": {"icon": "🔴", "color": "#dc2626", "order": 0},
+        "하락": {"icon": "🟠", "color": "#ea580c", "order": 1},
+        "회복": {"icon": "🟡", "color": "#f59e0b", "order": 2},
+        "상승": {"icon": "🟢", "color": "#16a34a", "order": 3},
+    }
+
+    rows = []
+    for sector, grp in daily_df.groupby("업종"):
+        if not sector or pd.isna(sector) or len(grp) < 2:
+            continue
+
+        changes = grp["등락률"] if "등락률" in grp.columns else pd.Series(dtype=float)
+        avg_chg = changes.mean() if len(changes) > 0 else 0.0
+        up_ratio = (changes > 0).mean() * 100 if len(changes) > 0 else 0.0
+        total_tv = grp["거래대금"].sum() / 1e8 if "거래대금" in grp.columns else 0.0
+        crash_cnt = int((changes <= -5.0).sum())
+        recover_cnt = int(((changes > 0) & (changes <= 5.0)).sum()) if crash_cnt > 0 or avg_chg < 0 else 0
+
+        phase = classify_sector_phase(avg_chg)
+        meta = phase_meta[phase]
+
+        rows.append({
+            "섹터": sector,
+            "종목수": len(grp),
+            "평균등락률": round(avg_chg, 2),
+            "상승비율": round(up_ratio, 1),
+            "합산거래대금_억": round(total_tv, 0),
+            "급락종목수": crash_cnt,
+            "회복종목수": recover_cnt,
+            "국면": phase,
+            "국면아이콘": meta["icon"],
+            "국면색상": meta["color"],
+            "_order": meta["order"],
+        })
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows).sort_values("_order").drop(columns="_order").reset_index(drop=True)
+    return result
+
+
+def detect_sector_crash_stocks(
+    daily_df: pd.DataFrame, sector: str, threshold: float = -5.0
+) -> pd.DataFrame:
+    """특정 섹터 내 급락 종목 추출."""
+    if daily_df.empty or "업종" not in daily_df.columns:
+        return pd.DataFrame()
+    mask = (daily_df["업종"] == sector) & (daily_df["등락률"] <= threshold)
+    return daily_df[mask].sort_values("등락률").copy()
+
+
+def detect_sector_recovering_stocks(
+    daily_df: pd.DataFrame, sector: str
+) -> pd.DataFrame:
+    """특정 섹터 내에서 급락 후 회복 신호를 보이는 종목.
+
+    조건: 당일 양봉(등락률 > 0) + 거래대금 섹터 중앙값 이상
+    (실제 급락→회복은 과거 데이터가 필요하지만, 당일 기준 간이 필터)
+    """
+    if daily_df.empty or "업종" not in daily_df.columns:
+        return pd.DataFrame()
+
+    sector_df = daily_df[daily_df["업종"] == sector].copy()
+    if sector_df.empty:
+        return pd.DataFrame()
+
+    # 양봉 + 거래대금 활발
+    median_tv = sector_df["거래대금"].median() if "거래대금" in sector_df.columns else 0
+    mask = (sector_df["등락률"] > 0)
+    if "거래대금" in sector_df.columns and median_tv > 0:
+        mask = mask & (sector_df["거래대금"] >= median_tv)
+
+    return sector_df[mask].sort_values("등락률", ascending=False).copy()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Type E : 단기 스윙 포지션 관리
 # ═══════════════════════════════════════════════════════════════════════════
 
