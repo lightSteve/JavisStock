@@ -354,19 +354,80 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
     _do_refresh(date, market, supply_days)
     _do_analysis(date)
 
+    _snapshot_saved_today = False  # 오늘 장마감 스냅샷 저장 여부
+
     while not _scheduler_stop.is_set():
         # 다음 갱신까지 대기 (stop 이벤트 체크하며)
         if _scheduler_stop.wait(timeout=REFRESH_INTERVAL_SEC):
             break  # stop 요청 시 종료
 
-        # 장중에만 API 갱신, 장 마감 후에는 스킵
+        now = datetime.datetime.now()
+
+        # 장중에만 API 갱신
         if _is_market_hours():
             _do_refresh(date, market, supply_days)
             _do_analysis(date)
+            _snapshot_saved_today = False  # 장중이면 리셋 (다음 마감용)
+
+        # ── 장 마감 직후 (16:00~17:00) 자동 스냅샷 저장 ──
+        elif (now.weekday() < 5
+              and MARKET_CLOSE_HOUR <= now.hour < MARKET_CLOSE_HOUR + 1
+              and not _snapshot_saved_today):
+            logger.info("[Scheduler] 장 마감 감지 — 전종목 스냅샷 자동 저장 시작")
+            _do_post_market_snapshot(date, market, supply_days)
+            _snapshot_saved_today = True
         else:
             logger.info("[Scheduler] 장 마감 시간 — API 갱신 스킵")
 
     logger.info("[Scheduler] 스케줄러 종료")
+
+
+def _do_post_market_snapshot(date: str, market: str, supply_days: int):
+    """장 마감 직후 정확한 데이터로 전종목 스냅샷 저장.
+
+    장중 마지막 갱신 데이터가 _store에 있으면 그것을 저장하고,
+    없으면 API에서 한 번 더 fetch하여 저장한다.
+    """
+    from data.fetcher import (
+        smart_load_daily_data, _save_full_snapshot,
+        load_daily_snapshot, _SNAPSHOT_DIR,
+    )
+    import os
+
+    try:
+        _store.is_refreshing = True
+
+        # 이미 오늘자 정상 스냅샷이 있으면 스킵
+        filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
+        if os.path.exists(filepath):
+            existing = load_daily_snapshot(date, market)
+            if not existing.empty and "등락률" in existing.columns:
+                if (existing["등락률"] != 0).any():
+                    logger.info("[Scheduler] 이미 정상 스냅샷 있음 — 저장 스킵")
+                    return
+
+        # _store에 장중 데이터가 있으면 사용
+        df, stored_date, stored_market, _ = _store.get()
+        if (df is not None and not df.empty
+                and stored_date == date and stored_market == market
+                and "등락률" in df.columns and (df["등락률"] != 0).any()):
+            _save_full_snapshot(df, date, market)
+            logger.info(f"[Scheduler] 장마감 스냅샷 저장 완료 (캐시): {len(df)}종목")
+            return
+
+        # 캐시에 정상 데이터가 없으면 API에서 fetch
+        daily_df = smart_load_daily_data(date, market, supply_days)
+        if not daily_df.empty:
+            _store.put(daily_df, date, market)
+            # smart_load_daily_data 내부에서 이미 스냅샷 저장 시도함
+            logger.info(f"[Scheduler] 장마감 스냅샷 저장 완료 (API fetch): {len(daily_df)}종목")
+        else:
+            logger.warning("[Scheduler] 장마감 스냅샷 저장 실패: 데이터 비어있음")
+
+    except Exception as e:
+        logger.error(f"[Scheduler] 장마감 스냅샷 저장 실패: {e}")
+    finally:
+        _store.is_refreshing = False
 
 
 def start_scheduler(date: str, market: str = "ALL", supply_days: int = 5):
