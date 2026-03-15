@@ -726,7 +726,9 @@ def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5) 
     if _is_market_closed(date):
         cached = load_daily_snapshot(date, market)
         if not cached.empty and "종목명" in cached.columns:
-            return cached
+            # 등락률이 전부 0인 비정상 스냅샷이면 무시하고 API에서 다시 fetch
+            if "등락률" in cached.columns and (cached["등락률"] != 0).any():
+                return cached
 
     # 2) API에서 fetch
     ohlcv = get_market_ohlcv(date, market)
