@@ -283,7 +283,7 @@ start_scheduler(date_str, market, supply_days)
 # 데이터 로딩 (스케줄러 우선 → 캐시 → API 순)
 # ===========================================================================
 
-@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
+@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (장 외 시간에는 종목별 보정으로 1~2분 소요)")
 def load_daily_data_cached(date: str, mkt: str, days: int) -> pd.DataFrame:
     """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용."""
     return smart_load_daily_data(date, mkt, days)

@@ -721,6 +721,7 @@ def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5) 
     스마트 데이터 로더:
     1) 장 마감된 날짜 → 스냅샷 CSV가 있으면 즉시 로드 (~0.5초)
     2) 스냅샷 없거나 장중 → API에서 fetch 후 장 마감이면 스냅샷 저장
+    3) 등락률이 전부 0(장 외 시간) → 개별 종목 히스토리로 보정
     """
     # 1) 스냅샷 체크 (장 마감된 날짜만)
     if _is_market_closed(date):
@@ -750,12 +751,67 @@ def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5) 
     fill_cols = [c for c in ohlcv.columns if "5일" in c]
     ohlcv[fill_cols] = ohlcv[fill_cols].fillna(0)
 
-    # 3) 장 마감됐으면 스냅샷 저장 (다음 조회부터 초고속 로드)
+    # 3) 등락률이 전부 0이면 (장 외 시간) → 개별 종목 히스토리로 보정
+    if "등락률" in ohlcv.columns and not (ohlcv["등락률"] != 0).any():
+        ohlcv = _patch_change_rates_from_history(ohlcv, date)
+
+    # 4) 장 마감됐으면 스냅샷 저장 (다음 조회부터 초고속 로드)
     #    단, 등락률이 전부 0이면 장 외 시간 비정상 데이터이므로 저장 안 함
     if _is_market_closed(date):
         if "등락률" in ohlcv.columns and (ohlcv["등락률"] != 0).any():
             _save_full_snapshot(ohlcv, date, market)
 
+    return ohlcv
+
+
+def _patch_change_rates_from_history(ohlcv: pd.DataFrame, date: str) -> pd.DataFrame:
+    """
+    장 외 시간에 등락률이 모두 0일 때, 개별 종목 price 히스토리 API로 보정.
+    시가총액 상위 500종목의 등락률을 업데이트하고, 나머지는 0으로 둔다.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("[Fetcher] 장 외 시간 등락률 보정 시작 (히스토리 API)")
+
+    # 시가총액 기준 상위 500종목만 보정 (API 부하 제한)
+    if "시가총액" in ohlcv.columns:
+        targets = ohlcv.nlargest(500, "시가총액").index.tolist()
+    else:
+        targets = ohlcv.head(500).index.tolist()
+
+    patched = 0
+    for i, ticker in enumerate(targets):
+        try:
+            items = _fetch_stock_price_history(ticker, count=2)
+            if not items:
+                continue
+
+            # 가장 최근 거래일 데이터
+            latest = items[0]
+            frate = _to_float(latest.get("fluctuationsRatio", 0))
+            close_price = _to_int(latest.get("closePrice", 0))
+
+            if frate != 0 and ticker in ohlcv.index:
+                ohlcv.at[ticker, "등락률"] = frate
+                # OHLCV도 정확한 값으로 보정
+                ohlcv.at[ticker, "종가"] = close_price
+                ohlcv.at[ticker, "고가"] = _to_int(latest.get("highPrice", close_price))
+                ohlcv.at[ticker, "저가"] = _to_int(latest.get("lowPrice", close_price))
+                ohlcv.at[ticker, "시가"] = _to_int(latest.get("openPrice", close_price))
+                vol = _to_int(latest.get("accumulatedTradingVolume", 0))
+                if vol > 0:
+                    ohlcv.at[ticker, "거래량"] = vol
+                patched += 1
+        except Exception:
+            continue
+
+        # API 부하 제한 (50건마다 0.3초 휴식)
+        if (i + 1) % 50 == 0:
+            time.sleep(0.3)
+        else:
+            time.sleep(0.02)
+
+    logger.info(f"[Fetcher] 등락률 보정 완료: {patched}/{len(targets)}종목")
     return ohlcv
 
 
