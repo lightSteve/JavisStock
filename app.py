@@ -280,6 +280,24 @@ top_n = config["top_n"]
 start_scheduler(date_str, market, supply_days)
 
 # ===========================================================================
+# 데이터 로딩 (스케줄러 우선 → 캐시 → API 순)
+# ===========================================================================
+
+@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
+def load_daily_data_cached(date: str, mkt: str, days: int) -> pd.DataFrame:
+    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용."""
+    return smart_load_daily_data(date, mkt, days)
+
+
+@st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
+def run_screening(daily_data_json: str, date: str):
+    """캐시를 위해 JSON 직렬화된 데이터를 받아 스크리닝."""
+    daily_df = pd.read_json(daily_data_json)
+    if "티커" in daily_df.columns:
+        daily_df = daily_df.set_index("티커")
+    return run_full_screening(daily_df, date)
+
+# ===========================================================================
 # 로드 버튼 (사이드바 상단에 배치됨)
 # ===========================================================================
 if config.get("load_clicked"):
@@ -303,24 +321,6 @@ if _sched_status["has_data"]:
 else:
     if _sched_status["is_refreshing"]:
         st.sidebar.caption("🟡 최초 데이터 준비 중...")
-
-# ===========================================================================
-# 데이터 로딩 (스케줄러 우선 → 캐시 → API 순)
-# ===========================================================================
-
-@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
-def load_daily_data_cached(date: str, mkt: str, days: int) -> pd.DataFrame:
-    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용."""
-    return smart_load_daily_data(date, mkt, days)
-
-
-@st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
-def run_screening(daily_data_json: str, date: str):
-    """캐시를 위해 JSON 직렬화된 데이터를 받아 스크리닝."""
-    daily_df = pd.read_json(daily_data_json)
-    if "티커" in daily_df.columns:
-        daily_df = daily_df.set_index("티커")
-    return run_full_screening(daily_df, date)
 
 if st.session_state.get("load_data"):
     # 스케줄러에 이미 데이터가 있으면 즉시 사용
