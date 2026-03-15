@@ -220,6 +220,10 @@ def get_market_ohlcv(date: str, market: str = "ALL") -> pd.DataFrame:
                 continue  # 거래 정지 종목 제외
             change = _to_signed_int(s.get("compareToPreviousClosePrice", 0))
             prev_close = close - change
+            # 등락률: API가 0을 반환하면(장 외 시간) 전일대비 가격으로 직접 계산
+            frate = _to_float(s.get("fluctuationsRatio", 0))
+            if frate == 0 and prev_close > 0 and change != 0:
+                frate = round((change / prev_close) * 100, 2)
             # Naver 거래대금은 백만원 단위 → 원으로 변환
             tv_raw = _to_int(s.get("accumulatedTradingValue", 0))
             rows.append({
@@ -230,7 +234,7 @@ def get_market_ohlcv(date: str, market: str = "ALL") -> pd.DataFrame:
                 "종가": close,
                 "거래량": _to_int(s.get("accumulatedTradingVolume", 0)),
                 "거래대금": tv_raw * 1_000_000,
-                "등락률": _to_float(s.get("fluctuationsRatio", 0)),
+                "등락률": frate,
                 "시장": mkt,
                 "시가총액": _to_int(s.get("marketValue", 0)) * 100_000_000,
                 "종목유형": s.get("stockEndType", "stock"),
@@ -745,8 +749,10 @@ def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5) 
     ohlcv[fill_cols] = ohlcv[fill_cols].fillna(0)
 
     # 3) 장 마감됐으면 스냅샷 저장 (다음 조회부터 초고속 로드)
+    #    단, 등락률이 전부 0이면 장 외 시간 비정상 데이터이므로 저장 안 함
     if _is_market_closed(date):
-        _save_full_snapshot(ohlcv, date, market)
+        if "등락률" in ohlcv.columns and (ohlcv["등락률"] != 0).any():
+            _save_full_snapshot(ohlcv, date, market)
 
     return ohlcv
 
