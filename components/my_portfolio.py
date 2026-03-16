@@ -27,6 +27,8 @@ from data.fetcher import (
     is_kis_configured,
     get_kis_stock_investor,
     clear_kis_investor_cache,
+    save_kis_credentials,
+    delete_kis_credentials,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -146,6 +148,9 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
     # ── 보유종목 추가 폼 ──
     _render_add_form(daily_df)
 
+    # ── KIS API 설정 ──
+    _render_kis_settings()
+
     if not holdings:
         st.info("💡 보유종목을 추가하면 수익률, 수급 흐름을 한눈에 볼 수 있습니다.")
         return
@@ -185,6 +190,50 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
     # ── 종목별 상세 분석 ──
     for i, h in enumerate(holdings):
         _render_holding_detail(i, h, daily_df, date_str)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# KIS API 설정 UI
+# ─────────────────────────────────────────────────────────────────────
+
+def _render_kis_settings():
+    """KIS API 자격증명을 앱 UI에서 직접 입력/저장/삭제."""
+    configured = is_kis_configured()
+    label = "🔴 KIS API 연결됨 — 장중 실시간 수급 활성화" if configured else "⚙️ KIS API 설정 (장중 실시간 수급)"
+
+    with st.expander(label, expanded=not configured):
+        if configured:
+            st.success("✅ KIS API 키가 설정되어 있습니다. 보유종목 기관/외국인 수급이 장중 실시간으로 표시됩니다.")
+            if st.button("🗑️ KIS 키 삭제", key="kis_delete", type="secondary"):
+                delete_kis_credentials()
+                st.success("삭제됐습니다.")
+                st.rerun()
+        else:
+            st.markdown(
+                "**한국투자증권 Open API** 앱 키를 입력하면 보유종목의 기관/외국인 수급을 **장중 실시간**으로 표시합니다.\n\n"
+                "📌 발급: [apiportal.koreainvestment.com](https://apiportal.koreainvestment.com) → 로그인 → 앱 등록 → 앱 키 발급"
+            )
+            app_key = st.text_input(
+                "App Key",
+                placeholder="PSxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                key="kis_app_key_input",
+                type="password",
+            )
+            app_secret = st.text_input(
+                "App Secret",
+                placeholder="xxxxxxxxxxxxxxxx...",
+                key="kis_app_secret_input",
+                type="password",
+            )
+            if st.button("💾 저장", key="kis_save", type="primary"):
+                if not app_key or not app_secret:
+                    st.warning("App Key와 App Secret을 모두 입력해주세요.")
+                elif len(app_key) < 20 or len(app_secret) < 20:
+                    st.warning("키 형식이 올바르지 않습니다. 다시 확인해주세요.")
+                else:
+                    save_kis_credentials(app_key.strip(), app_secret.strip())
+                    st.success("✅ KIS API 키가 저장됐습니다! 이제 장중 실시간 수급이 표시됩니다.")
+                    st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────

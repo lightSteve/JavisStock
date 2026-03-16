@@ -9,6 +9,7 @@ KRX 데이터 포탈이 2026년부터 로그인을 요구하므로 Naver Finance
 """
 
 import datetime
+import json
 import os
 import re
 import time
@@ -624,19 +625,52 @@ def clear_market_investor_cache():
 # ---------------------------------------------------------------------------
 # KIS (한국투자증권) Open API — 개별 종목 장중 실시간 수급
 #
-# [설정 방법]
-# Streamlit Cloud: 앱 설정 → Secrets에 아래 추가
-#   [kis]
-#   app_key    = "PSxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-#   app_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-# 로컬: .streamlit/secrets.toml 동일하게 추가
+# [설정 방법 — 우선순위]
+# 1) 앱 UI에서 직접 입력 → portfolio_data/kis_credentials.json 저장 (권장)
+# 2) Streamlit Cloud Secrets: [kis] app_key / app_secret
+# 3) 환경변수: KIS_APP_KEY / KIS_APP_SECRET
 # ---------------------------------------------------------------------------
 
 KIS_API_BASE = "https://openapi.koreainvestment.com:9443"
+_KIS_CRED_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "portfolio_data", "kis_credentials.json"
+)
+
+
+def save_kis_credentials(app_key: str, app_secret: str):
+    """앱 UI에서 입력한 KIS 자격증명을 파일에 저장."""
+    cred_path = os.path.normpath(_KIS_CRED_FILE)
+    os.makedirs(os.path.dirname(cred_path), exist_ok=True)
+    with open(cred_path, "w", encoding="utf-8") as f:
+        json.dump({"app_key": app_key, "app_secret": app_secret}, f)
+    # 토큰 캐시 무효화
+    _cache.pop("_kis_tok", None)
+    _cache.pop("_kis_tok_ts", None)
+
+
+def delete_kis_credentials():
+    """저장된 KIS 자격증명 삭제."""
+    cred_path = os.path.normpath(_KIS_CRED_FILE)
+    if os.path.exists(cred_path):
+        os.remove(cred_path)
+    for k in ["_kis_tok", "_kis_tok_ts"]:
+        _cache.pop(k, None)
 
 
 def _get_kis_credentials():
-    """st.secrets 또는 환경변수에서 KIS 자격증명 획득."""
+    """KIS 자격증명 획득 (우선순위: 파일 > st.secrets > 환경변수)."""
+    # 1) 파일 기반 (앱 UI 입력)
+    cred_path = os.path.normpath(_KIS_CRED_FILE)
+    if os.path.exists(cred_path):
+        try:
+            with open(cred_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            k, s = d.get("app_key", ""), d.get("app_secret", "")
+            if k and s:
+                return k, s
+        except Exception:
+            pass
+    # 2) st.secrets
     try:
         import streamlit as st
         if hasattr(st, "secrets") and "kis" in st.secrets:
@@ -646,7 +680,7 @@ def _get_kis_credentials():
             )
     except Exception:
         pass
-    import os
+    # 3) 환경변수
     return os.getenv("KIS_APP_KEY", ""), os.getenv("KIS_APP_SECRET", "")
 
 
