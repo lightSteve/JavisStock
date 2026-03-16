@@ -24,6 +24,9 @@ from data.fetcher import (
     clear_integration_cache,
     get_market_investor_trend,
     clear_market_investor_cache,
+    is_kis_configured,
+    get_kis_stock_investor,
+    clear_kis_investor_cache,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -159,9 +162,10 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
         cache_key = f"pf_realtime_{_get_username()}"
         st.session_state.pop(cache_key, None)
         st.session_state.pop(ts_key, None)
-        # 수급(integration) 캐시도 클리어 → 당일 기관/외국인 최신 반영
+        # 수급 캐시 전체 클리어 (Naver integration + KIS 장중)
         for h in holdings:
             clear_integration_cache(h["ticker"])
+            clear_kis_investor_cache(h["ticker"])
         clear_market_investor_cache()
         st.rerun()
 
@@ -352,7 +356,7 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         total_buy += buy_amount
         total_eval += eval_amount
 
-        # 최근 확정일 기관/외국인 수급 조회
+        # 최근 확정일 기관/외국인 수급 조회 (Naver)
         inst_latest = 0.0
         frgn_latest = 0.0
         supply_date_str = ""
@@ -366,6 +370,19 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 supply_date_str = supply_sorted.index[-1].strftime("%m/%d")
         except Exception:
             pass
+
+        # KIS 장중 실시간 수급 (설정된 경우 우선 적용)
+        kis_live = False
+        if is_kis_configured():
+            try:
+                kis = get_kis_stock_investor(ticker)
+                if kis:
+                    inst_latest = kis.get("기관", 0.0)
+                    frgn_latest = kis.get("외국인", 0.0)
+                    supply_date_str = "오늘"
+                    kis_live = True
+            except Exception:
+                pass
 
         rows.append({
             "idx": i,
@@ -383,6 +400,7 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             "기관최근": inst_latest,
             "외국인최근": frgn_latest,
             "수급기준일": supply_date_str,
+            "수급실시간": kis_live,
         })
 
     # 전체 요약 메트릭
@@ -403,6 +421,15 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
     # 종목별 테이블
     if rows:
         st.markdown("### 📋 보유종목 현황")
+        # KIS 연결 상태 배지
+        if is_kis_configured():
+            st.caption("🔴 KIS API 연결됨 · 기관/외국인 수급 장중 실시간 갱신 (1분 주기)")
+        else:
+            st.caption(
+                "💡 KIS API 미연결 · 수급은 전 거래일 확정 기준 | "
+                "연결 방법: Streamlit Cloud → 앱 설정 → Secrets에 [kis] app_key / app_secret 추가"
+            )
+
         for r in rows:
             pnl_val = r["손익"]
             pnl_rate_val = r["수익률"]
@@ -410,11 +437,17 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             inst_d = r["기관최근"]
             frgn_d = r["외국인최근"]
             sup_date = r["수급기준일"]
+            sup_live = r.get("수급실시간", False)
 
             pnl_color = "#ef4444" if pnl_val >= 0 else "#3b82f6"
             day_color = "#ef4444" if day_change >= 0 else "#3b82f6"
             inst_color = "#ef4444" if inst_d >= 0 else "#3b82f6"
             frgn_color = "#ef4444" if frgn_d >= 0 else "#3b82f6"
+
+            # 수급 라벨: 실시간이면 빨간 점 표시
+            live_dot = '<span style="color:#ef4444;">●</span> ' if sup_live else ""
+            inst_label = f"{live_dot}기관({sup_date})"
+            frgn_label = f"{live_dot}외국인({sup_date})"
 
             st.markdown(
                 f'<div style="background:#fff; border-radius:12px; padding:14px 18px; '
@@ -447,12 +480,12 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 f'{day_change:+.2f}%</div>'
                 f'</div>'
                 f'<div style="text-align:center; min-width:90px;">'
-                f'<div style="font-size:0.72em; color:#94a3b8;">기관({sup_date})</div>'
+                f'<div style="font-size:0.72em; color:#94a3b8;">{inst_label}</div>'
                 f'<div style="font-weight:600; font-size:0.85em; color:{inst_color};">'
                 f'{inst_d:+.1f}억</div>'
                 f'</div>'
                 f'<div style="text-align:center; min-width:90px;">'
-                f'<div style="font-size:0.72em; color:#94a3b8;">외국인({sup_date})</div>'
+                f'<div style="font-size:0.72em; color:#94a3b8;">{frgn_label}</div>'
                 f'<div style="font-weight:600; font-size:0.85em; color:{frgn_color};">'
                 f'{frgn_d:+.1f}억</div>'
                 f'</div>'

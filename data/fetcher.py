@@ -622,6 +622,142 @@ def clear_market_investor_cache():
 
 
 # ---------------------------------------------------------------------------
+# KIS (한국투자증권) Open API — 개별 종목 장중 실시간 수급
+#
+# [설정 방법]
+# Streamlit Cloud: 앱 설정 → Secrets에 아래 추가
+#   [kis]
+#   app_key    = "PSxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#   app_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# 로컬: .streamlit/secrets.toml 동일하게 추가
+# ---------------------------------------------------------------------------
+
+KIS_API_BASE = "https://openapi.koreainvestment.com:9443"
+
+
+def _get_kis_credentials():
+    """st.secrets 또는 환경변수에서 KIS 자격증명 획득."""
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "kis" in st.secrets:
+            return (
+                str(st.secrets["kis"].get("app_key", "")),
+                str(st.secrets["kis"].get("app_secret", "")),
+            )
+    except Exception:
+        pass
+    import os
+    return os.getenv("KIS_APP_KEY", ""), os.getenv("KIS_APP_SECRET", "")
+
+
+def is_kis_configured() -> bool:
+    """KIS API 자격증명 설정 여부."""
+    k, s = _get_kis_credentials()
+    return bool(k and s)
+
+
+def get_kis_access_token() -> str:
+    """
+    KIS OAuth access token 발급 (23시간 캐시).
+    자격증명 미설정 또는 실패 시 빈 문자열 반환.
+    """
+    cache_key, ts_key = "_kis_tok", "_kis_tok_ts"
+    now = time.time()
+    tok = _cache.get(cache_key, "")
+    if tok and now - _cache.get(ts_key, 0) < 82800:  # 23시간
+        return tok
+    k, s = _get_kis_credentials()
+    if not k or not s:
+        return ""
+    try:
+        resp = requests.post(
+            f"{KIS_API_BASE}/oauth2/tokenP",
+            json={"grant_type": "client_credentials", "appkey": k, "appsecret": s},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        tok = resp.json().get("access_token", "")
+        if tok:
+            _cache[cache_key] = tok
+            _cache[ts_key] = now
+        return tok
+    except Exception:
+        return ""
+
+
+def get_kis_stock_investor(ticker: str) -> Dict:
+    """
+    KIS TR FHKST02010100: 주식현재가 투자자
+    당일 기관/외국인/개인 순매수 거래대금 (장중 실시간, 1분 캐시).
+
+    반환: {"외국인": -1.07, "기관": -4.51, "개인": 5.58}  (단위: 억원)
+          자격증명 미설정 / API 오류 시: {} 반환
+    """
+    if not is_kis_configured():
+        return {}
+    cache_key = f"kis_inv_{ticker}"
+    now = time.time()
+    cached = _cache.get(cache_key)
+    if cached and now - cached.get("_ts", 0) < 60:  # 1분 캐시
+        return {k: v for k, v in cached.items() if not k.startswith("_")}
+
+    tok = get_kis_access_token()
+    if not tok:
+        return {}
+    app_key, app_secret = _get_kis_credentials()
+    try:
+        resp = requests.get(
+            f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor",
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHKST02010100",
+                "custtype": "P",
+            },
+            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("rt_cd") != "0":
+            return {}
+        item = data.get("output")
+        if isinstance(item, list):
+            item = item[0] if item else {}
+        if not item:
+            return {}
+
+        def _eok(key: str) -> float:
+            """원(KRW) → 억원 변환 (frgn_ntby_tr_pbmn 등 거래대금 필드)."""
+            v = str(item.get(key, "0")).replace(",", "").replace("+", "")
+            try:
+                return float(v) / 1e8
+            except ValueError:
+                return 0.0
+
+        result = {
+            "외국인": _eok("frgn_ntby_tr_pbmn"),
+            "기관": _eok("orgn_ntby_tr_pbmn"),
+            "개인": _eok("indv_ntby_tr_pbmn"),
+            "_ts": now,
+        }
+        _cache[cache_key] = result
+        return {k: v for k, v in result.items() if not k.startswith("_")}
+    except Exception:
+        return {}
+
+
+def clear_kis_investor_cache(ticker: str = None):
+    """KIS 투자자 수급 캐시 초기화."""
+    if ticker:
+        _cache.pop(f"kis_inv_{ticker}", None)
+    else:
+        for k in [k for k in list(_cache) if k.startswith("kis_inv_")]:
+            _cache.pop(k, None)
+
+
+# ---------------------------------------------------------------------------
 # 종합 데이터 빌더 (메인 파이프라인)
 # ---------------------------------------------------------------------------
 
