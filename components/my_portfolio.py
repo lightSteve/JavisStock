@@ -7,8 +7,6 @@
 - JSON 파일 영속 저장
 """
 
-import json
-import os
 import datetime
 import pandas as pd
 import plotly.graph_objects as go
@@ -37,14 +35,11 @@ from analysis.indicators import calc_moving_averages
 # 파일 저장/로드
 # ─────────────────────────────────────────────────────────────────────
 
-_PORTFOLIO_BASE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "portfolio_data",
-)
+from data.supabase_db import load_portfolio as _sb_load, save_portfolio as _sb_save
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 사용자별 파일 관리
+# 사용자별 데이터 관리 (Supabase)
 # ─────────────────────────────────────────────────────────────────────
 
 def _get_username() -> str:
@@ -55,31 +50,12 @@ def _session_key() -> str:
     return f"my_portfolio_{_get_username()}"
 
 
-def _portfolio_file() -> str:
-    return os.path.join(_PORTFOLIO_BASE_DIR, f"portfolio_{_get_username()}.json")
-
-
-def _ensure_dir():
-    os.makedirs(_PORTFOLIO_BASE_DIR, exist_ok=True)
-
-
 def _load_portfolio() -> list:
-    filepath = _portfolio_file()
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                return data
-        except (json.JSONDecodeError, IOError):
-            pass
-    return []
+    return _sb_load(_get_username())
 
 
 def _save_portfolio(entries: list):
-    _ensure_dir()
-    with open(_portfolio_file(), "w", encoding="utf-8") as f:
-        json.dump(entries, f, ensure_ascii=False, indent=2)
+    _sb_save(_get_username(), entries)
 
 
 def _get_portfolio() -> list:

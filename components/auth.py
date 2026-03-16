@@ -3,47 +3,18 @@
 - 회원가입: 닉네임 + 비밀번호 → 해시 저장
 - 로그인: 닉네임 + 비밀번호 확인
 - 비밀번호는 SHA-256 해시로 저장 (원문 저장 없음)
-- JSON 파일 기반 (users.json)
+- Supabase 기반 (재배포 시에도 데이터 유지)
 """
 
 import hashlib
-import json
-import os
 import re
 import streamlit as st
-
-_AUTH_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "auth_data",
-)
-_USERS_FILE = os.path.join(_AUTH_DIR, "users.json")
-
-
-def _ensure_dir():
-    os.makedirs(_AUTH_DIR, exist_ok=True)
+from data.supabase_db import get_user, upsert_user
 
 
 def _hash_password(password: str) -> str:
     """비밀번호를 SHA-256 해시로 변환."""
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-
-def _load_users() -> dict:
-    """사용자 목록 로드. {닉네임: {password_hash, created_at}}"""
-    if os.path.exists(_USERS_FILE):
-        try:
-            with open(_USERS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
-
-
-def _save_users(users: dict):
-    """사용자 목록 저장."""
-    _ensure_dir()
-    with open(_USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
 
 
 def _sanitize_username(name: str) -> str:
@@ -104,10 +75,10 @@ def render_login_sidebar():
                 st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
             else:
                 safe_name = _sanitize_username(login_name)
-                users = _load_users()
-                if safe_name not in users:
+                user = get_user(safe_name)
+                if not user:
                     st.sidebar.error("등록되지 않은 닉네임입니다.")
-                elif users[safe_name]["password_hash"] != _hash_password(login_pw):
+                elif user["password_hash"] != _hash_password(login_pw):
                     st.sidebar.error("비밀번호가 틀렸습니다.")
                 else:
                     st.session_state["username"] = safe_name
@@ -136,15 +107,13 @@ def render_login_sidebar():
                 if not safe_name:
                     st.sidebar.error("유효한 닉네임을 입력해주세요.")
                 else:
-                    users = _load_users()
-                    if safe_name in users:
-                        st.sidebar.error(f"'{safe_name}'은(는) 이미 사용중인 닉네임입니다.")
-                    else:
-                        from datetime import datetime
-                        users[safe_name] = {
-                            "password_hash": _hash_password(reg_pw),
-                            "created_at": datetime.now().isoformat(),
-                        }
-                        _save_users(users)
-                        st.session_state["username"] = safe_name
-                        st.rerun()
+                        existing = get_user(safe_name)
+                        if existing:
+                            st.sidebar.error(f"'{safe_name}'은(는) 이미 사용중인 닉네임입니다.")
+                        else:
+                            from datetime import datetime
+                            upsert_user(
+                                safe_name,
+                                _hash_password(reg_pw),
+                                datetime.now().isoformat(),
+                            )

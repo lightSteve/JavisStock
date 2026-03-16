@@ -6,19 +6,17 @@
 - 일별 목록 & 유형별 통계
 """
 
-import json
-import os
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 
 
-_JOURNAL_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "journal_data")
+from data.supabase_db import load_journal as _sb_load, save_journal as _sb_save
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 사용자별 파일 관리
+# 사용자별 데이터 관리 (Supabase)
 # ─────────────────────────────────────────────────────────────────────
 
 def _get_username() -> str:
@@ -29,33 +27,14 @@ def _journal_key() -> str:
     return f"trading_journal_{_get_username()}"
 
 
-def _journal_file() -> str:
-    return os.path.join(_JOURNAL_BASE_DIR, f"journal_{_get_username()}.json")
-
-
-def _ensure_dir():
-    os.makedirs(_JOURNAL_BASE_DIR, exist_ok=True)
-
-
 def _load_journal() -> list:
-    """JSON 파일에서 매매 기록을 로드."""
-    filepath = _journal_file()
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                return data
-        except (json.JSONDecodeError, IOError):
-            pass
-    return []
+    """Supabase에서 매매 기록을 로드."""
+    return _sb_load(_get_username())
 
 
 def _save_journal(entries: list):
-    """매매 기록을 JSON 파일에 저장."""
-    _ensure_dir()
-    with open(_journal_file(), "w", encoding="utf-8") as f:
-        json.dump(entries, f, ensure_ascii=False, indent=2)
+    """매매 기록을 Supabase에 저장."""
+    _sb_save(_get_username(), entries)
 
 
 def _get_entries() -> list:
