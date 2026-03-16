@@ -453,29 +453,46 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         total_buy += buy_amount
         total_eval += eval_amount
 
-        # 최근 확정일 기관/외국인 수급 조회 (Naver)
-        inst_latest = 0.0
-        frgn_latest = 0.0
+        # 최근 확정일 기관/외국인 수급 조회 (Naver) — 5일 누적 계산
+        inst_5d = 0.0
+        frgn_5d = 0.0
+        inst_buy_5d = 0.0   # 양수일 합계
+        inst_sell_5d = 0.0  # 음수일 합계(절댓값)
+        frgn_buy_5d = 0.0
+        frgn_sell_5d = 0.0
         supply_date_str = ""
         try:
             supply = get_investor_trend_individual(ticker)
             if not supply.empty:
                 supply_sorted = supply.sort_index()
-                latest = supply_sorted.iloc[-1]
-                inst_latest = latest.get("기관합계", 0) / 1e8
-                frgn_latest = latest.get("외국인합계", 0) / 1e8
                 supply_date_str = supply_sorted.index[-1].strftime("%m/%d")
+                for val in supply_sorted["기관합계"] / 1e8:
+                    if val >= 0:
+                        inst_buy_5d += val
+                    else:
+                        inst_sell_5d += abs(val)
+                for val in supply_sorted["외국인합계"] / 1e8:
+                    if val >= 0:
+                        frgn_buy_5d += val
+                    else:
+                        frgn_sell_5d += abs(val)
+                inst_5d = inst_buy_5d - inst_sell_5d
+                frgn_5d = frgn_buy_5d - frgn_sell_5d
         except Exception:
             pass
 
-        # KIS 장중 실시간 수급 (설정된 경우 우선 적용)
+        # KIS 장중 실시간 수급 (설정된 경우 당일 값으로 덮어씀)
         kis_live = False
         if is_kis_configured():
             try:
                 kis = get_kis_stock_investor(ticker)
                 if kis:
-                    inst_latest = kis.get("기관", 0.0)
-                    frgn_latest = kis.get("외국인", 0.0)
+                    inst_5d = kis.get("기관", 0.0)
+                    frgn_5d = kis.get("외국인", 0.0)
+                    inst_buy_5d = inst_5d if inst_5d >= 0 else 0.0
+                    inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
+                    frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
+                    frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
                     supply_date_str = "오늘"
                     kis_live = True
             except Exception:
@@ -494,8 +511,12 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             "수익률": pnl_rate,
             "당일등락": change_rate,
             "매수일": h.get("buy_date", "-"),
-            "기관최근": inst_latest,
-            "외국인최근": frgn_latest,
+            "기관최근": inst_5d,
+            "외국인최근": frgn_5d,
+            "기관매수": inst_buy_5d,
+            "기관매도": inst_sell_5d,
+            "외국인매수": frgn_buy_5d,
+            "외국인매도": frgn_sell_5d,
             "수급기준일": supply_date_str,
             "수급실시간": kis_live,
         })
@@ -533,6 +554,10 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             day_change = r["당일등락"]
             inst_d = r["기관최근"]
             frgn_d = r["외국인최근"]
+            inst_buy = r.get("기관매수", 0.0)
+            inst_sell = r.get("기관매도", 0.0)
+            frgn_buy = r.get("외국인매수", 0.0)
+            frgn_sell = r.get("외국인매도", 0.0)
             sup_date = r["수급기준일"]
             sup_live = r.get("수급실시간", False)
 
@@ -541,10 +566,34 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             inst_color = "#ef4444" if inst_d >= 0 else "#3b82f6"
             frgn_color = "#ef4444" if frgn_d >= 0 else "#3b82f6"
 
-            # 수급 라벨: 실시간이면 빨간 점 표시
+            # 수급 라벨: 실시간이면 당일, 아니면 5일 누적
             live_dot = '<span style="color:#ef4444;">●</span> ' if sup_live else ""
-            inst_label = f"{live_dot}기관({sup_date})"
-            frgn_label = f"{live_dot}외국인({sup_date})"
+            inst_period = "당일" if sup_live else f"5일({sup_date}까지)"
+            frgn_period = "당일" if sup_live else f"5일({sup_date}까지)"
+            inst_trend = "진입중" if inst_d >= 0 else "이탈중"
+            frgn_trend = "진입중" if frgn_d >= 0 else "이탈중"
+            inst_trend_color = "#ef4444" if inst_d >= 0 else "#3b82f6"
+            frgn_trend_color = "#ef4444" if frgn_d >= 0 else "#3b82f6"
+
+            # 매수/매도 breakdown HTML (실시간이 아닐 때만 표시)
+            if not sup_live and (inst_buy > 0 or inst_sell > 0):
+                inst_breakdown = (
+                    f'<div style="font-size:0.68em; color:#94a3b8; margin-top:2px;">'
+                    f'매수 <span style="color:#ef4444;">+{inst_buy:.1f}</span> '
+                    f'매도 <span style="color:#3b82f6;">-{inst_sell:.1f}</span>'
+                    f'</div>'
+                )
+            else:
+                inst_breakdown = ""
+            if not sup_live and (frgn_buy > 0 or frgn_sell > 0):
+                frgn_breakdown = (
+                    f'<div style="font-size:0.68em; color:#94a3b8; margin-top:2px;">'
+                    f'매수 <span style="color:#ef4444;">+{frgn_buy:.1f}</span> '
+                    f'매도 <span style="color:#3b82f6;">-{frgn_sell:.1f}</span>'
+                    f'</div>'
+                )
+            else:
+                frgn_breakdown = ""
 
             st.markdown(
                 f'<div style="background:#fff; border-radius:12px; padding:14px 18px; '
@@ -576,15 +625,19 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 f'<div style="font-weight:600; font-size:0.88em; color:{day_color};">'
                 f'{day_change:+.2f}%</div>'
                 f'</div>'
-                f'<div style="text-align:center; min-width:90px;">'
-                f'<div style="font-size:0.72em; color:#94a3b8;">{inst_label}</div>'
-                f'<div style="font-weight:600; font-size:0.85em; color:{inst_color};">'
+                f'<div style="text-align:center; min-width:100px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">{live_dot}기관 {inst_period}</div>'
+                f'<div style="font-weight:700; font-size:0.88em; color:{inst_color};">'
                 f'{inst_d:+.1f}억</div>'
+                f'<div style="font-size:0.7em; font-weight:600; color:{inst_trend_color};">{inst_trend}</div>'
+                f'{inst_breakdown}'
                 f'</div>'
-                f'<div style="text-align:center; min-width:90px;">'
-                f'<div style="font-size:0.72em; color:#94a3b8;">{frgn_label}</div>'
-                f'<div style="font-weight:600; font-size:0.85em; color:{frgn_color};">'
+                f'<div style="text-align:center; min-width:100px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">{live_dot}외국인 {frgn_period}</div>'
+                f'<div style="font-weight:700; font-size:0.88em; color:{frgn_color};">'
                 f'{frgn_d:+.1f}억</div>'
+                f'<div style="font-size:0.7em; font-weight:600; color:{frgn_trend_color};">{frgn_trend}</div>'
+                f'{frgn_breakdown}'
                 f'</div>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -1131,26 +1184,69 @@ def _render_supply_detail(ticker: str, idx: int):
     )
     st.plotly_chart(fig_cum, use_container_width=True, key=f"pf_supply_cum_{idx}")
 
-    # 수급 요약 텍스트
+    # 수급 요약 테이블
     if not supply_sorted.empty:
-        latest = supply_sorted.iloc[-1] if len(supply_sorted) > 0 else pd.Series()
         total = supply_sorted.sum()
 
-        inst_5d = total.get("기관합계", 0) / 1e8
-        frgn_5d = total.get("외국인합계", 0) / 1e8
-        indv_5d = total.get("개인", 0) / 1e8
+        inst_buy_total = supply_sorted["기관합계"].clip(lower=0).sum() / 1e8
+        inst_sell_total = supply_sorted["기관합계"].clip(upper=0).abs().sum() / 1e8
+        inst_net = inst_buy_total - inst_sell_total
+        frgn_buy_total = supply_sorted["외국인합계"].clip(lower=0).sum() / 1e8
+        frgn_sell_total = supply_sorted["외국인합계"].clip(upper=0).abs().sum() / 1e8
+        frgn_net = frgn_buy_total - frgn_sell_total
+        indv_buy_total = supply_sorted["개인"].clip(lower=0).sum() / 1e8
+        indv_sell_total = supply_sorted["개인"].clip(upper=0).abs().sum() / 1e8
+        indv_net = indv_buy_total - indv_sell_total
 
-        inst_icon = "🔴" if inst_5d > 0 else "🔵"
-        frgn_icon = "🔴" if frgn_5d > 0 else "🔵"
-        indv_icon = "🔴" if indv_5d > 0 else "🔵"
+        def trend_badge(net):
+            if net > 0:
+                return '<span style="background:#fee2e2; color:#ef4444; border-radius:4px; padding:1px 6px; font-size:0.85em; font-weight:700;">▲ 진입중</span>'
+            elif net < 0:
+                return '<span style="background:#dbeafe; color:#3b82f6; border-radius:4px; padding:1px 6px; font-size:0.85em; font-weight:700;">▼ 이탈중</span>'
+            else:
+                return '<span style="background:#f1f5f9; color:#64748b; border-radius:4px; padding:1px 6px; font-size:0.85em;">― 중립</span>'
+
+        def net_color(v):
+            return "#ef4444" if v >= 0 else "#3b82f6"
 
         st.markdown(
-            f'<div style="background:#f8fafc; border-radius:10px; padding:12px 16px; '
-            f'border:1px solid #e2e8f0; font-size:0.85em;">'
-            f'<b>5일 누적 수급:</b> '
-            f'{inst_icon} 기관 {inst_5d:+,.1f}억 · '
-            f'{frgn_icon} 외국인 {frgn_5d:+,.1f}억 · '
-            f'{indv_icon} 개인 {indv_5d:+,.1f}억'
+            f'<div style="background:#f8fafc; border-radius:10px; padding:14px 16px; '
+            f'border:1px solid #e2e8f0; font-size:0.83em; margin-top:4px;">'
+            f'<div style="font-weight:700; color:#1e293b; margin-bottom:10px;">📋 5일 수급 요약</div>'
+            f'<table style="width:100%; border-collapse:collapse;">'
+            f'<thead><tr style="color:#64748b; font-size:0.85em;">'
+            f'<th style="text-align:left; padding:4px 8px;">구분</th>'
+            f'<th style="text-align:right; padding:4px 8px; color:#ef4444;">순매수(+합계)</th>'
+            f'<th style="text-align:right; padding:4px 8px; color:#3b82f6;">순매도(-합계)</th>'
+            f'<th style="text-align:right; padding:4px 8px;">순포지션</th>'
+            f'<th style="text-align:center; padding:4px 8px;">상태</th>'
+            f'</tr></thead>'
+            f'<tbody>'
+            f'<tr style="border-top:1px solid #e2e8f0;">'
+            f'<td style="padding:6px 8px; font-weight:600;">기관</td>'
+            f'<td style="text-align:right; padding:6px 8px; color:#ef4444;">+{inst_buy_total:.1f}억</td>'
+            f'<td style="text-align:right; padding:6px 8px; color:#3b82f6;">-{inst_sell_total:.1f}억</td>'
+            f'<td style="text-align:right; padding:6px 8px; font-weight:700; color:{net_color(inst_net)};">{inst_net:+.1f}억</td>'
+            f'<td style="text-align:center; padding:6px 8px;">{trend_badge(inst_net)}</td>'
+            f'</tr>'
+            f'<tr style="border-top:1px solid #f1f5f9;">'
+            f'<td style="padding:6px 8px; font-weight:600;">외국인</td>'
+            f'<td style="text-align:right; padding:6px 8px; color:#ef4444;">+{frgn_buy_total:.1f}억</td>'
+            f'<td style="text-align:right; padding:6px 8px; color:#3b82f6;">-{frgn_sell_total:.1f}억</td>'
+            f'<td style="text-align:right; padding:6px 8px; font-weight:700; color:{net_color(frgn_net)};">{frgn_net:+.1f}억</td>'
+            f'<td style="text-align:center; padding:6px 8px;">{trend_badge(frgn_net)}</td>'
+            f'</tr>'
+            f'<tr style="border-top:1px solid #f1f5f9;">'
+            f'<td style="padding:6px 8px; font-weight:600;">개인</td>'
+            f'<td style="text-align:right; padding:6px 8px; color:#ef4444;">+{indv_buy_total:.1f}억</td>'
+            f'<td style="text-align:right; padding:6px 8px; color:#3b82f6;">-{indv_sell_total:.1f}억</td>'
+            f'<td style="text-align:right; padding:6px 8px; font-weight:700; color:{net_color(indv_net)};">{indv_net:+.1f}억</td>'
+            f'<td style="text-align:center; padding:6px 8px;">{trend_badge(indv_net)}</td>'
+            f'</tr>'
+            f'</tbody></table>'
+            f'<div style="font-size:0.75em; color:#94a3b8; margin-top:8px;">'
+            f'순매수(+합계): 양수인 날의 합 / 순매도(-합계): 음수인 날의 합 / 순포지션 = 순매수 - 순매도'
+            f'</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
