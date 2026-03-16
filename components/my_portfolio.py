@@ -397,25 +397,84 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
 
         result["supply_summary"] = " / ".join(parts) if parts else "수급 변동 미미"
 
-        # 시그널 판단
-        if inst_total > 5 and frgn_total > 5:
-            result["signal"] = "강력 매집"
-            result["signal_icon"] = "🔴"
-            result["reasons"].append("기관+외국인 동시 순매수 (스마트머니 유입)")
+        # 시그널 판단 — 기관+외국인 합산 순매수 기준 5단계
+        smart_money = inst_total + frgn_total  # 기관+외국인 합산 (억)
+        both_buying = inst_total > 0 and frgn_total > 0
+        both_selling = inst_total < 0 and frgn_total < 0
+
+        if smart_money > 0 and (both_buying or max(inst_total, frgn_total) > 5):
+            # ── 매집 단계 (5단계) ──
+            if smart_money >= 200:
+                result["signal"] = "Lv5 초강력 매집"
+                result["signal_icon"] = "🔴🔴🔴🔴🔴"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매수 {smart_money:,.0f}억 → 대형 스마트머니 집중 유입")
+            elif smart_money >= 100:
+                result["signal"] = "Lv4 강력 매집"
+                result["signal_icon"] = "🔴🔴🔴🔴"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매수 {smart_money:,.0f}억 → 강한 매집 진행")
+            elif smart_money >= 50:
+                result["signal"] = "Lv3 적극 매집"
+                result["signal_icon"] = "🔴🔴🔴"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매수 {smart_money:,.0f}억 → 적극적 매수세")
+            elif smart_money >= 20:
+                result["signal"] = "Lv2 매집 진행"
+                result["signal_icon"] = "🔴🔴"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매수 {smart_money:,.0f}억 → 매집 흐름 감지")
+            else:
+                result["signal"] = "Lv1 매집 초기"
+                result["signal_icon"] = "🔴"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매수 {smart_money:,.0f}억 → 초기 유입 단계")
+
+            if both_buying:
+                result["reasons"].append("기관+외국인 동시 순매수 (높은 신뢰도)")
+
+        elif smart_money < 0 and (both_selling or min(inst_total, frgn_total) < -5):
+            # ── 이탈 단계 (5단계) ──
+            sell_amt = abs(smart_money)
+            if sell_amt >= 200:
+                result["signal"] = "Lv5 대량 이탈"
+                result["signal_icon"] = "🔵🔵🔵🔵🔵"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매도 {smart_money:,.0f}억 → 대규모 이탈 경고")
+            elif sell_amt >= 100:
+                result["signal"] = "Lv4 강한 이탈"
+                result["signal_icon"] = "🔵🔵🔵🔵"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매도 {smart_money:,.0f}억 → 강한 매도세")
+            elif sell_amt >= 50:
+                result["signal"] = "Lv3 이탈 주의"
+                result["signal_icon"] = "🔵🔵🔵"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매도 {smart_money:,.0f}억 → 리스크 관리 필요")
+            elif sell_amt >= 20:
+                result["signal"] = "Lv2 이탈 진행"
+                result["signal_icon"] = "🔵🔵"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매도 {smart_money:,.0f}억 → 매도 흐름 감지")
+            else:
+                result["signal"] = "Lv1 이탈 초기"
+                result["signal_icon"] = "🔵"
+                result["reasons"].append(
+                    f"기관+외국인 합산 순매도 {smart_money:,.0f}억 → 초기 유출 단계")
+
+            if both_selling:
+                result["reasons"].append("기관+외국인 동시 순매도 (높은 경계)")
+
         elif inst_total > 5 or frgn_total > 5:
-            result["signal"] = "매집 진행"
-            result["signal_icon"] = "🟠"
             who = "기관" if inst_total > frgn_total else "외국인"
-            result["reasons"].append(f"{who} 주도 순매수 진행 중")
-        elif inst_total < -5 and frgn_total < -5:
-            result["signal"] = "이탈 주의"
-            result["signal_icon"] = "🔵"
-            result["reasons"].append("기관+외국인 동시 이탈 (리스크 관리 필요)")
+            result["signal"] = "편중 매수"
+            result["signal_icon"] = "🟠"
+            result["reasons"].append(f"{who} 단독 순매수 {max(inst_total,frgn_total):,.0f}억 (상대측은 매도)")
         elif inst_total < -5 or frgn_total < -5:
-            result["signal"] = "부분 이탈"
-            result["signal_icon"] = "🟡"
             who = "기관" if inst_total < frgn_total else "외국인"
-            result["reasons"].append(f"{who} 순매도 흐름 → 추이 관찰 필요")
+            result["signal"] = "편중 매도"
+            result["signal_icon"] = "🟡"
+            result["reasons"].append(f"{who} 단독 순매도 {min(inst_total,frgn_total):,.0f}억 → 추이 관찰")
         else:
             result["signal"] = "중립"
             result["signal_icon"] = "⚪"
@@ -459,19 +518,17 @@ def _render_portfolio_briefing(holdings: list, realtime: dict):
         reasons = briefing["reasons"]
         news = briefing["news"]
 
-        # 시그널별 배경색
-        bg_map = {
-            "강력 매집": "#fef2f2", "매집 진행": "#fff7ed",
-            "이탈 주의": "#eff6ff", "부분 이탈": "#fefce8",
-            "중립": "#f8fafc",
-        }
-        border_map = {
-            "강력 매집": "#fca5a5", "매집 진행": "#fdba74",
-            "이탈 주의": "#93c5fd", "부분 이탈": "#fde68a",
-            "중립": "#e2e8f0",
-        }
-        bg = bg_map.get(signal_text, "#f8fafc")
-        border = border_map.get(signal_text, "#e2e8f0")
+        # 시그널별 배경색 — 매집/이탈 레벨 기반
+        signal_lower = signal_text
+        if "매집" in signal_lower or "편중 매수" in signal_lower:
+            bg = "#fef2f2"
+            border = "#fca5a5"
+        elif "이탈" in signal_lower or "편중 매도" in signal_lower:
+            bg = "#eff6ff"
+            border = "#93c5fd"
+        else:
+            bg = "#f8fafc"
+            border = "#e2e8f0"
 
         # 이유 HTML
         reasons_html = ""
