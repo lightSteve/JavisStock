@@ -946,7 +946,7 @@ def _render_holding_detail(idx: int, holding: dict, daily_df: pd.DataFrame, date
         # 삭제 버튼
         col_del, _ = st.columns([1, 5])
         with col_del:
-            if st.button("🗑️ 종목 삭제", key=f"pf_del_{idx}", type="secondary"):
+            if st.button("🗑️ 종목 삭제", key=f"pf_detail_del_{idx}", type="secondary"):
                 _remove_holding(idx)
                 st.rerun()
 
