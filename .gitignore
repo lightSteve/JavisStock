@@ -4,3 +4,4 @@ __pycache__/
 .env
 journal_data/
 portfolio_data/
+auth_data/
