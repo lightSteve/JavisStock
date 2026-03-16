@@ -306,10 +306,10 @@ def get_stock_name(ticker: str) -> str:
 
 
 def get_realtime_price(ticker: str) -> dict:
-    """종목의 실시간 현재가/등락률을 캐시 없이 조회.
+    """종목의 실시간 현재가/등락률을 캐시 없이 조회 (basic 엔드포인트).
     반환: {"price": int, "change_rate": float, "name": str}
     """
-    url = f"{NAVER_API}/stock/{ticker}/integration"
+    url = f"{NAVER_API}/stock/{ticker}/basic"
     try:
         resp = _session.get(url, timeout=8)
         resp.raise_for_status()
