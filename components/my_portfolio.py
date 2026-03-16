@@ -416,6 +416,13 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
         frgn_today = latest.get("외국인합계", 0) / 1e8
 
         # 수급 트렌드 판단
+        # 당일 수급
+        today_parts = []
+        today_parts.append(f"기관 {inst_today:+.1f}억")
+        today_parts.append(f"외국인 {frgn_today:+.1f}억")
+        today_line = "📌 당일: " + " / ".join(today_parts)
+
+        # 5일 누적
         parts = []
         if inst_total > 0:
             parts.append(f"기관 5일 순매수 {inst_total:+.1f}억")
@@ -425,8 +432,9 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
             parts.append(f"외국인 5일 순매수 {frgn_total:+.1f}억")
         elif frgn_total < 0:
             parts.append(f"외국인 5일 순매도 {frgn_total:+.1f}억")
+        five_day_line = "📊 5일 누적: " + (" / ".join(parts) if parts else "변동 미미")
 
-        result["supply_summary"] = " / ".join(parts) if parts else "수급 변동 미미"
+        result["supply_summary"] = today_line + "<br>" + five_day_line
 
         # 시그널 판단 — 기관+외국인 합산 순매수 기준 5단계
         smart_money = inst_total + frgn_total  # 기관+외국인 합산 (억)
