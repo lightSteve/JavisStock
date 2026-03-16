@@ -20,6 +20,7 @@ from data.fetcher import (
     get_stock_ohlcv_history,
     get_investor_trend_individual,
     get_realtime_price,
+    get_stock_news_list,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -159,6 +160,11 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
 
     # ── 포트폴리오 요약 ──
     _render_summary(holdings, daily_df, realtime)
+
+    st.markdown("---")
+
+    # ── 보유종목 브리핑 ──
+    _render_portfolio_briefing(holdings, realtime)
 
     st.markdown("---")
 
@@ -330,6 +336,183 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 f'</div>',
                 unsafe_allow_html=True,
             )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 보유종목 브리핑
+# ─────────────────────────────────────────────────────────────────────
+
+_SUPPLY_KEYWORDS = {
+    "기관 매수": ["기관", "연기금", "투신", "보험", "은행", "기금"],
+    "외국인 매수": ["외국인", "외인", "모건스탠리", "골드만", "JP모간", "외자"],
+    "실적": ["실적", "영업이익", "매출", "순이익", "흑자", "적자", "어닝"],
+    "수주/계약": ["수주", "계약", "납품", "공급", "MOU", "협약"],
+    "신사업/신약": ["신약", "FDA", "임상", "승인", "허가", "신사업", "진출"],
+    "배당/자사주": ["배당", "자사주", "소각", "주주환원"],
+    "구조조정": ["구조조정", "인수", "합병", "M&A", "분할", "매각"],
+    "정책/테마": ["정책", "규제", "테마", "대장주", "관련주", "수혜"],
+}
+
+
+def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
+    """수급 데이터 + 뉴스를 분석해 브리핑 생성."""
+    result = {
+        "name": name,
+        "ticker": ticker,
+        "supply_summary": "",
+        "signal": "중립",
+        "signal_icon": "⚪",
+        "reasons": [],
+        "news": [],
+    }
+
+    # 수급 데이터
+    try:
+        supply = get_investor_trend_individual(ticker)
+    except Exception:
+        supply = pd.DataFrame()
+
+    if not supply.empty:
+        supply_sorted = supply.sort_index()
+        total = supply_sorted.sum()
+        inst_total = total.get("기관합계", 0) / 1e8
+        frgn_total = total.get("외국인합계", 0) / 1e8
+        indv_total = total.get("개인", 0) / 1e8
+
+        # 최근일 수급
+        latest = supply_sorted.iloc[-1] if len(supply_sorted) > 0 else pd.Series()
+        inst_today = latest.get("기관합계", 0) / 1e8
+        frgn_today = latest.get("외국인합계", 0) / 1e8
+
+        # 수급 트렌드 판단
+        parts = []
+        if inst_total > 0:
+            parts.append(f"기관 5일 순매수 {inst_total:+.1f}억")
+        elif inst_total < 0:
+            parts.append(f"기관 5일 순매도 {inst_total:+.1f}억")
+        if frgn_total > 0:
+            parts.append(f"외국인 5일 순매수 {frgn_total:+.1f}억")
+        elif frgn_total < 0:
+            parts.append(f"외국인 5일 순매도 {frgn_total:+.1f}억")
+
+        result["supply_summary"] = " / ".join(parts) if parts else "수급 변동 미미"
+
+        # 시그널 판단
+        if inst_total > 5 and frgn_total > 5:
+            result["signal"] = "강력 매집"
+            result["signal_icon"] = "🔴"
+            result["reasons"].append("기관+외국인 동시 순매수 (스마트머니 유입)")
+        elif inst_total > 5 or frgn_total > 5:
+            result["signal"] = "매집 진행"
+            result["signal_icon"] = "🟠"
+            who = "기관" if inst_total > frgn_total else "외국인"
+            result["reasons"].append(f"{who} 주도 순매수 진행 중")
+        elif inst_total < -5 and frgn_total < -5:
+            result["signal"] = "이탈 주의"
+            result["signal_icon"] = "🔵"
+            result["reasons"].append("기관+외국인 동시 이탈 (리스크 관리 필요)")
+        elif inst_total < -5 or frgn_total < -5:
+            result["signal"] = "부분 이탈"
+            result["signal_icon"] = "🟡"
+            who = "기관" if inst_total < frgn_total else "외국인"
+            result["reasons"].append(f"{who} 순매도 흐름 → 추이 관찰 필요")
+        else:
+            result["signal"] = "중립"
+            result["signal_icon"] = "⚪"
+
+        # 개인 대입 패턴 점검
+        if indv_total > 10 and (inst_total < -3 or frgn_total < -3):
+            result["reasons"].append("⚠️ 개인 매수 vs 기관/외국인 매도 → 물량 떠넘기기 주의")
+
+    # 뉴스에서 이유 추출
+    try:
+        news_list = get_stock_news_list(ticker, count=8)
+    except Exception:
+        news_list = []
+
+    if news_list:
+        result["news"] = news_list[:3]  # 상위 3건
+        # 뉴스 제목에서 키워드 매칭
+        all_titles = " ".join(n.get("title", "") for n in news_list)
+        for category, keywords in _SUPPLY_KEYWORDS.items():
+            for kw in keywords:
+                if kw in all_titles:
+                    result["reasons"].append(f"📰 {category} 관련 뉴스 감지: '{kw}'")
+                    break  # 카테고리당 1개만
+
+    return result
+
+
+def _render_portfolio_briefing(holdings: list, realtime: dict):
+    """보유종목 전체 수급 브리핑."""
+    st.markdown("### 📋 보유종목 수급 브리핑")
+
+    for h in holdings:
+        ticker = h["ticker"]
+        name = h.get("name", ticker)
+        rt = realtime.get(ticker, {})
+        briefing = _analyze_supply_reason(ticker, name, rt)
+
+        signal_icon = briefing["signal_icon"]
+        signal_text = briefing["signal"]
+        supply_text = briefing["supply_summary"]
+        reasons = briefing["reasons"]
+        news = briefing["news"]
+
+        # 시그널별 배경색
+        bg_map = {
+            "강력 매집": "#fef2f2", "매집 진행": "#fff7ed",
+            "이탈 주의": "#eff6ff", "부분 이탈": "#fefce8",
+            "중립": "#f8fafc",
+        }
+        border_map = {
+            "강력 매집": "#fca5a5", "매집 진행": "#fdba74",
+            "이탈 주의": "#93c5fd", "부분 이탈": "#fde68a",
+            "중립": "#e2e8f0",
+        }
+        bg = bg_map.get(signal_text, "#f8fafc")
+        border = border_map.get(signal_text, "#e2e8f0")
+
+        # 이유 HTML
+        reasons_html = ""
+        if reasons:
+            reasons_li = "".join(f"<li>{r}</li>" for r in reasons)
+            reasons_html = (
+                f'<ul style="margin:6px 0 0 0; padding-left:18px; '
+                f'font-size:0.78em; color:#475569;">{reasons_li}</ul>'
+            )
+
+        # 뉴스 HTML
+        news_html = ""
+        if news:
+            news_items = "".join(
+                f'<li><a href="{n.get("url", "#")}" target="_blank" '
+                f'style="color:#4f46e5; text-decoration:none;">{n.get("title", "")}</a> '
+                f'<span style="color:#94a3b8; font-size:0.85em;">({n.get("date", "")})</span></li>'
+                for n in news
+            )
+            news_html = (
+                f'<div style="margin-top:8px; padding-top:6px; border-top:1px dashed #e2e8f0;">'
+                f'<div style="font-size:0.75em; color:#94a3b8; margin-bottom:3px;">📰 관련 뉴스</div>'
+                f'<ul style="margin:0; padding-left:18px; font-size:0.78em;">{news_items}</ul>'
+                f'</div>'
+            )
+
+        st.markdown(
+            f'<div style="background:{bg}; border:1px solid {border}; '
+            f'border-radius:12px; padding:14px 18px; margin-bottom:10px;">'
+            f'<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">'
+            f'<span style="font-size:1.1em;">{signal_icon}</span>'
+            f'<span style="font-weight:700; font-size:0.95em; color:#1e293b;">{name}</span>'
+            f'<span style="background:#e2e8f0; border-radius:6px; padding:2px 8px; '
+            f'font-size:0.72em; font-weight:600; color:#475569;">{signal_text}</span>'
+            f'</div>'
+            f'<div style="font-size:0.82em; color:#334155;">{supply_text}</div>'
+            f'{reasons_html}'
+            f'{news_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────
