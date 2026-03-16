@@ -217,16 +217,18 @@ def _render_kis_settings():
                             import requests as _req
                             from data.fetcher import _get_kis_credentials, KIS_API_BASE
                             app_key, app_secret = _get_kis_credentials()
+                            hdrs = {
+                                "Authorization": f"Bearer {tok}",
+                                "appkey": app_key,
+                                "appsecret": app_secret,
+                                "custtype": "P",
+                                "content-type": "application/json; charset=utf-8",
+                            }
+                            # Test 1: 주식현재가 투자자 (FHKST02010100)
                             try:
                                 r = _req.get(
                                     f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor",
-                                    headers={
-                                        "Authorization": f"Bearer {tok}",
-                                        "appkey": app_key,
-                                        "appsecret": app_secret,
-                                        "tr_id": "FHKST02010100",
-                                        "custtype": "P",
-                                    },
+                                    headers={**hdrs, "tr_id": "FHKST02010100"},
                                     params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "005930"},
                                     timeout=10,
                                 )
@@ -241,14 +243,32 @@ def _render_kis_settings():
                                     orgn = output.get("orgn_ntby_tr_pbmn", "N/A")
                                     indv = output.get("indv_ntby_tr_pbmn", "N/A")
                                     st.success(
-                                        f"✅ 수급 조회 성공 (삼성전자 기준)\n"
+                                        f"✅ 투자자 수급 성공 (삼성전자)\n"
                                         f"외국인: {frgn}원 | 기관: {orgn}원 | 개인: {indv}원"
                                     )
                                 else:
-                                    st.error(f"❌ API 오류 rt_cd={rt_cd}: {msg}")
-                                    st.code(str(data)[:600])
+                                    st.error(f"❌ [FHKST02010100] rt_cd={rt_cd}: {msg}")
+                                    st.code(str(data)[:400])
                             except Exception as e:
-                                st.error(f"❌ 요청 실패: {e}")
+                                st.error(f"❌ [FHKST02010100] 요청 실패: {e}")
+                            # Test 2: 주식현재가 시세 (FHKST01010100) — 기본시세 확인용
+                            try:
+                                r2 = _req.get(
+                                    f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
+                                    headers={**hdrs, "tr_id": "FHKST01010100"},
+                                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "005930"},
+                                    timeout=10,
+                                )
+                                data2 = r2.json()
+                                rt2 = data2.get("rt_cd", "?")
+                                msg2 = data2.get("msg1", "")
+                                if rt2 == "0":
+                                    price = data2.get("output", {}).get("stck_prpr", "N/A")
+                                    st.success(f"✅ [기본시세 FHKST01010100] 삼성전자 현재가: {price}원")
+                                else:
+                                    st.error(f"❌ [FHKST01010100] rt_cd={rt2}: {msg2}")
+                            except Exception as e:
+                                st.error(f"❌ [FHKST01010100] 요청 실패: {e}")
             with col_d:
                 if st.button("🗑️ KIS 키 삭제", key="kis_delete", type="secondary"):
                     delete_kis_credentials()
