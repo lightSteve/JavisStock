@@ -93,38 +93,40 @@ st.markdown(
     section[data-testid="stSidebar"] .stCheckbox label span {
         color: #e2e8f0 !important;
     }
-    /* 사이드바 입력 필드 / 셀렉트박스 / 날짜 내부 글자 */
+    /* 사이드바 내 모든 input/select 글자색 (폼 포함) */
     section[data-testid="stSidebar"] input,
     section[data-testid="stSidebar"] select,
     section[data-testid="stSidebar"] textarea,
-    section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] span,
-    section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] div,
-    section[data-testid="stSidebar"] .stDateInput input,
-    section[data-testid="stSidebar"] .stDateInput [data-baseweb="input"] div,
-    section[data-testid="stSidebar"] .stMultiSelect span,
-    section[data-testid="stSidebar"] .stNumberInput input,
     section[data-testid="stSidebar"] [data-baseweb="input"] input,
-    section[data-testid="stSidebar"] [data-baseweb="select"] div {
-        color: #f1f5f9 !important;
+    section[data-testid="stSidebar"] [data-baseweb="select"] div,
+    section[data-testid="stSidebar"] [data-baseweb="select"] span {
+        color: #1e293b !important;
     }
-    /* 사이드바 입력 배경을 약간 밝게 */
+    /* 사이드바 입력 배경: 밝은색 유지 (가독성) */
     section[data-testid="stSidebar"] [data-baseweb="input"],
     section[data-testid="stSidebar"] [data-baseweb="select"] > div:first-child,
     section[data-testid="stSidebar"] .stDateInput [data-baseweb="input"] {
-        background-color: #334155 !important;
+        background-color: #ffffff !important;
+        border-color: #94a3b8 !important;
+    }
+    /* 사이드바 폼 배경 */
+    section[data-testid="stSidebar"] [data-testid="stForm"] {
+        background-color: #1e293b !important;
         border-color: #475569 !important;
     }
-    /* 사이드바 placeholder 색상 */
+    /* 사이드바 placeholder */
     section[data-testid="stSidebar"] input::placeholder {
         color: #94a3b8 !important;
     }
-    /* 사이드바 버튼 텍스트 */
-    section[data-testid="stSidebar"] .stButton button {
+    /* 사이드바 버튼 */
+    section[data-testid="stSidebar"] .stButton button,
+    section[data-testid="stSidebar"] .stFormSubmitButton button {
         color: #f1f5f9 !important;
         background-color: #475569;
         border-color: #64748b !important;
     }
-    section[data-testid="stSidebar"] .stButton button[kind="primary"] {
+    section[data-testid="stSidebar"] .stButton button[kind="primary"],
+    section[data-testid="stSidebar"] .stFormSubmitButton button[kind="primary"] {
         background-color: #4f46e5 !important;
         color: white !important;
     }
