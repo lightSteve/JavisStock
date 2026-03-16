@@ -91,13 +91,15 @@ def render_login_sidebar():
     )
 
     if mode == "로그인":
-        login_name = st.sidebar.text_input(
-            "닉네임", placeholder="닉네임", key="login_name",
-        )
-        login_pw = st.sidebar.text_input(
-            "비밀번호", type="password", placeholder="비밀번호", key="login_pw",
-        )
-        if st.sidebar.button("✅ 로그인", key="btn_login", use_container_width=True, type="primary"):
+        with st.sidebar.form("login_form"):
+            login_name = st.text_input(
+                "닉네임", placeholder="닉네임", key="login_name",
+            )
+            login_pw = st.text_input(
+                "비밀번호", type="password", placeholder="비밀번호", key="login_pw",
+            )
+            submitted = st.form_submit_button("✅ 로그인", use_container_width=True, type="primary")
+        if submitted:
             if not login_name or not login_pw:
                 st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
             else:
@@ -111,16 +113,18 @@ def render_login_sidebar():
                     st.session_state["username"] = safe_name
                     st.rerun()
     else:
-        reg_name = st.sidebar.text_input(
-            "닉네임", placeholder="사용할 닉네임", key="reg_name",
-        )
-        reg_pw = st.sidebar.text_input(
-            "비밀번호", type="password", placeholder="비밀번호 (4자 이상)", key="reg_pw",
-        )
-        reg_pw2 = st.sidebar.text_input(
-            "비밀번호 확인", type="password", placeholder="비밀번호 재입력", key="reg_pw2",
-        )
-        if st.sidebar.button("📝 회원가입", key="btn_register", use_container_width=True):
+        with st.sidebar.form("register_form"):
+            reg_name = st.text_input(
+                "닉네임", placeholder="사용할 닉네임", key="reg_name",
+            )
+            reg_pw = st.text_input(
+                "비밀번호", type="password", placeholder="비밀번호 (4자 이상)", key="reg_pw",
+            )
+            reg_pw2 = st.text_input(
+                "비밀번호 확인", type="password", placeholder="비밀번호 재입력", key="reg_pw2",
+            )
+            submitted = st.form_submit_button("📝 회원가입", use_container_width=True)
+        if submitted:
             if not reg_name or not reg_pw:
                 st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
             elif len(reg_pw) < 4:
