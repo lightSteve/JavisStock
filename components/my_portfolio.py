@@ -152,11 +152,14 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
     if last_ts:
         st.caption(f"⏱️ 현재가 기준: {last_ts.strftime('%H:%M:%S')} 갱신")
 
-    # 새로고침 버튼
+    # 새로고침 버튼 — 현재가 + 수급 동시 갱신
     if st.button("🔄 현재가 갱신", key="pf_refresh"):
         cache_key = f"pf_realtime_{_get_username()}"
         st.session_state.pop(cache_key, None)
         st.session_state.pop(ts_key, None)
+        # 수급(integration) 캐시도 클리어 → 당일 기관/외국인 최신 반영
+        for h in holdings:
+            clear_integration_cache(h["ticker"])
         st.rerun()
 
     # ── 포트폴리오 요약 ──
