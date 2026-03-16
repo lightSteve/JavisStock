@@ -26,22 +26,37 @@ from analysis.indicators import calc_moving_averages
 # 파일 저장/로드
 # ─────────────────────────────────────────────────────────────────────
 
-_PORTFOLIO_DIR = os.path.join(
+_PORTFOLIO_BASE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "portfolio_data",
 )
-_PORTFOLIO_FILE = os.path.join(_PORTFOLIO_DIR, "my_portfolio.json")
-_SESSION_KEY = "my_portfolio"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 사용자별 파일 관리
+# ─────────────────────────────────────────────────────────────────────
+
+def _get_username() -> str:
+    return st.session_state.get("username", "default")
+
+
+def _session_key() -> str:
+    return f"my_portfolio_{_get_username()}"
+
+
+def _portfolio_file() -> str:
+    return os.path.join(_PORTFOLIO_BASE_DIR, f"portfolio_{_get_username()}.json")
 
 
 def _ensure_dir():
-    os.makedirs(_PORTFOLIO_DIR, exist_ok=True)
+    os.makedirs(_PORTFOLIO_BASE_DIR, exist_ok=True)
 
 
 def _load_portfolio() -> list:
-    if os.path.exists(_PORTFOLIO_FILE):
+    filepath = _portfolio_file()
+    if os.path.exists(filepath):
         try:
-            with open(_PORTFOLIO_FILE, "r", encoding="utf-8") as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list):
                 return data
@@ -52,26 +67,31 @@ def _load_portfolio() -> list:
 
 def _save_portfolio(entries: list):
     _ensure_dir()
-    with open(_PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+    with open(_portfolio_file(), "w", encoding="utf-8") as f:
         json.dump(entries, f, ensure_ascii=False, indent=2)
 
 
 def _get_portfolio() -> list:
-    if _SESSION_KEY not in st.session_state:
-        st.session_state[_SESSION_KEY] = _load_portfolio()
-    return st.session_state[_SESSION_KEY]
+    key = _session_key()
+    if key not in st.session_state:
+        st.session_state[key] = _load_portfolio()
+    return st.session_state[key]
 
 
 def _add_holding(entry: dict):
+    key = _session_key()
     entries = _get_portfolio()
     entries.append(entry)
+    st.session_state[key] = entries
     _save_portfolio(entries)
 
 
 def _remove_holding(idx: int):
+    key = _session_key()
     entries = _get_portfolio()
     if 0 <= idx < len(entries):
         entries.pop(idx)
+        st.session_state[key] = entries
         _save_portfolio(entries)
 
 
@@ -82,6 +102,12 @@ def _remove_holding(idx: int):
 def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
     """보유종목 포트폴리오 탭 렌더링."""
     st.markdown("## 💼 내 보유종목")
+
+    username = _get_username()
+    if username == "default":
+        st.warning("⚠️ 사이드바에서 **닉네임**을 입력하면 개인별로 보유종목이 저장됩니다.")
+    else:
+        st.caption(f"👤 **{username}** 님의 포트폴리오")
 
     holdings = _get_portfolio()
 

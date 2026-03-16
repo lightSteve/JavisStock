@@ -14,24 +14,35 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 
-_JOURNAL_KEY = "trading_journal"
-_JOURNAL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "journal_data")
-_JOURNAL_FILE = os.path.join(_JOURNAL_DIR, "trading_journal.json")
+_JOURNAL_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "journal_data")
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 영속 저장/로드
+# 사용자별 파일 관리
 # ─────────────────────────────────────────────────────────────────────
+
+def _get_username() -> str:
+    return st.session_state.get("username", "default")
+
+
+def _journal_key() -> str:
+    return f"trading_journal_{_get_username()}"
+
+
+def _journal_file() -> str:
+    return os.path.join(_JOURNAL_BASE_DIR, f"journal_{_get_username()}.json")
+
 
 def _ensure_dir():
-    os.makedirs(_JOURNAL_DIR, exist_ok=True)
+    os.makedirs(_JOURNAL_BASE_DIR, exist_ok=True)
 
 
 def _load_journal() -> list:
     """JSON 파일에서 매매 기록을 로드."""
-    if os.path.exists(_JOURNAL_FILE):
+    filepath = _journal_file()
+    if os.path.exists(filepath):
         try:
-            with open(_JOURNAL_FILE, "r", encoding="utf-8") as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list):
                 return data
@@ -43,30 +54,33 @@ def _load_journal() -> list:
 def _save_journal(entries: list):
     """매매 기록을 JSON 파일에 저장."""
     _ensure_dir()
-    with open(_JOURNAL_FILE, "w", encoding="utf-8") as f:
+    with open(_journal_file(), "w", encoding="utf-8") as f:
         json.dump(entries, f, ensure_ascii=False, indent=2)
 
 
 def _get_entries() -> list:
     """세션 + 파일 동기화. 세션에 없으면 파일에서 로드."""
-    if _JOURNAL_KEY not in st.session_state:
-        st.session_state[_JOURNAL_KEY] = _load_journal()
-    return st.session_state[_JOURNAL_KEY]
+    key = _journal_key()
+    if key not in st.session_state:
+        st.session_state[key] = _load_journal()
+    return st.session_state[key]
 
 
 def _add_entry(entry: dict):
     """기록 추가 후 파일 저장."""
+    key = _journal_key()
     entries = _get_entries()
     entries.append(entry)
-    st.session_state[_JOURNAL_KEY] = entries
+    st.session_state[key] = entries
     _save_journal(entries)
 
 
 def _delete_entry(timestamp: str):
     """타임스탬프 기준 기록 삭제 후 파일 저장."""
+    key = _journal_key()
     entries = _get_entries()
     entries = [e for e in entries if e.get("timestamp") != timestamp]
-    st.session_state[_JOURNAL_KEY] = entries
+    st.session_state[key] = entries
     _save_journal(entries)
 
 
@@ -74,6 +88,12 @@ def render_trading_journal(daily_df: pd.DataFrame, date_str: str):
     """매매 일지 & 복기 렌더링."""
     st.markdown("## 📓 매매 일지 & 복기")
     st.caption("일별 매매 내역 · 복기 분석 · 리스크 체크 · 한줄 교훈")
+
+    username = _get_username()
+    if username == "default":
+        st.warning("⚠️ 사이드바에서 **닉네임**을 입력하면 개인별로 매매일지가 저장됩니다.")
+    else:
+        st.caption(f"👤 **{username}** 님의 매매일지")
 
     _get_entries()
 

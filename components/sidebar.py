@@ -25,6 +25,25 @@ def render_sidebar() -> dict:
     """사이드바 위젯을 렌더링하고 선택값을 딕셔너리로 반환."""
     st.sidebar.markdown("## 🎛️ 설정")
 
+    # --- 사용자 식별 ---
+    st.sidebar.markdown("### 👤 사용자")
+    _username = st.sidebar.text_input(
+        "닉네임",
+        value=st.session_state.get("username", ""),
+        placeholder="닉네임을 입력하세요",
+        help="매매일지·보유종목이 닉네임별로 저장됩니다.",
+        key="sidebar_username",
+    )
+    if _username:
+        # 파일명에 안전한 문자만 허용
+        import re as _re
+        _safe_name = _re.sub(r'[^\w가-힣]', '_', _username.strip())[:20]
+        st.session_state["username"] = _safe_name
+        st.sidebar.caption(f"✅ **{_safe_name}** 님으로 접속 중")
+    else:
+        st.session_state.pop("username", None)
+        st.sidebar.caption("⚠️ 닉네임을 입력하면 개인 데이터가 저장됩니다.")
+
     # --- 날짜 선택 ---
     st.sidebar.markdown("### 📅 기준일")
     default_date = _get_default_date()
