@@ -362,6 +362,8 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
         "supply_summary": "",
         "signal": "중립",
         "signal_icon": "⚪",
+        "opinion": "",
+        "opinion_icon": "",
         "reasons": [],
         "news": [],
     }
@@ -483,6 +485,60 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
         if indv_total > 10 and (inst_total < -3 or frgn_total < -3):
             result["reasons"].append("⚠️ 개인 매수 vs 기관/외국인 매도 → 물량 떠넘기기 주의")
 
+        # ── 매매 의견 ──
+        sig = result["signal"]
+        if "Lv5" in sig and "매집" in sig:
+            result["opinion"] = "적극 매수"
+            result["opinion_icon"] = "🟢"
+        elif "Lv4" in sig and "매집" in sig:
+            result["opinion"] = "매수"
+            result["opinion_icon"] = "🟢"
+        elif "Lv3" in sig and "매집" in sig:
+            result["opinion"] = "매수 관심"
+            result["opinion_icon"] = "🟢"
+        elif "Lv2" in sig and "매집" in sig:
+            result["opinion"] = "관망(매수 대기)"
+            result["opinion_icon"] = "🟡"
+        elif "Lv1" in sig and "매집" in sig:
+            result["opinion"] = "관망"
+            result["opinion_icon"] = "🟡"
+        elif sig == "편중 매수":
+            result["opinion"] = "관망(편중 주의)"
+            result["opinion_icon"] = "🟡"
+        elif sig == "중립":
+            result["opinion"] = "매도 검토"
+            result["opinion_icon"] = "🟠"
+            result["reasons"].append("💡 수급 변동 미미 → 모멘텀 부재, 매도 타이밍 검토")
+        elif sig == "편중 매도":
+            result["opinion"] = "매도 검토"
+            result["opinion_icon"] = "🟠"
+            result["reasons"].append("💡 한쪽 매도 흐름 → 추가 이탈 가능성 대비")
+        elif "Lv1" in sig and "이탈" in sig:
+            result["opinion"] = "매도 검토"
+            result["opinion_icon"] = "🟠"
+        elif "Lv2" in sig and "이탈" in sig:
+            result["opinion"] = "매도"
+            result["opinion_icon"] = "🔴"
+            result["reasons"].append("💡 매도 흐름 본격화 → 손절/익절 고려")
+        elif "Lv3" in sig and "이탈" in sig:
+            result["opinion"] = "적극 매도"
+            result["opinion_icon"] = "🔴"
+            result["reasons"].append("💡 상당한 이탈 → 비중 축소 권장")
+        elif "Lv4" in sig and "이탈" in sig:
+            result["opinion"] = "즉시 매도"
+            result["opinion_icon"] = "🔴"
+            result["reasons"].append("💡 강한 매도세 → 빠른 대응 필요")
+        elif "Lv5" in sig and "이탈" in sig:
+            result["opinion"] = "즉시 매도"
+            result["opinion_icon"] = "🔴"
+            result["reasons"].append("🚨 대규모 이탈 → 즉시 전량 매도 고려")
+
+        # 개인 물량 떠넘기기 패턴 → 의견 하향
+        if indv_total > 10 and (inst_total < -3 or frgn_total < -3):
+            if "매수" in result.get("opinion", ""):
+                result["opinion"] = "관망(수급 괴리)"
+                result["opinion_icon"] = "🟡"
+
     # 뉴스에서 이유 추출
     try:
         news_list = get_stock_news_list(ticker, count=8)
@@ -515,6 +571,8 @@ def _render_portfolio_briefing(holdings: list, realtime: dict):
         signal_icon = briefing["signal_icon"]
         signal_text = briefing["signal"]
         supply_text = briefing["supply_summary"]
+        opinion = briefing.get("opinion", "")
+        opinion_icon = briefing.get("opinion_icon", "")
         reasons = briefing["reasons"]
         news = briefing["news"]
 
@@ -529,6 +587,21 @@ def _render_portfolio_briefing(holdings: list, realtime: dict):
         else:
             bg = "#f8fafc"
             border = "#e2e8f0"
+
+        # 의견 배지 색상
+        op_bg_map = {"🟢": "#dcfce7", "🟡": "#fef9c3", "🟠": "#ffedd5", "🔴": "#fee2e2"}
+        op_fg_map = {"🟢": "#166534", "🟡": "#854d0e", "🟠": "#9a3412", "🔴": "#991b1b"}
+        op_bg = op_bg_map.get(opinion_icon, "#f1f5f9")
+        op_fg = op_fg_map.get(opinion_icon, "#475569")
+
+        # 의견 HTML
+        opinion_html = ""
+        if opinion:
+            opinion_html = (
+                f'<span style="background:{op_bg}; color:{op_fg}; border-radius:6px; '
+                f'padding:3px 10px; font-size:0.78em; font-weight:700; '
+                f'margin-left:6px;">{opinion_icon} {opinion}</span>'
+            )
 
         # 이유 HTML
         reasons_html = ""
@@ -558,11 +631,12 @@ def _render_portfolio_briefing(holdings: list, realtime: dict):
         st.markdown(
             f'<div style="background:{bg}; border:1px solid {border}; '
             f'border-radius:12px; padding:14px 18px; margin-bottom:10px;">'
-            f'<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">'
+            f'<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">'
             f'<span style="font-size:1.1em;">{signal_icon}</span>'
             f'<span style="font-weight:700; font-size:0.95em; color:#1e293b;">{name}</span>'
             f'<span style="background:#e2e8f0; border-radius:6px; padding:2px 8px; '
             f'font-size:0.72em; font-weight:600; color:#475569;">{signal_text}</span>'
+            f'{opinion_html}'
             f'</div>'
             f'<div style="font-size:0.82em; color:#334155;">{supply_text}</div>'
             f'{reasons_html}'
