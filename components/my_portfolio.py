@@ -19,6 +19,7 @@ from data.fetcher import (
     get_stock_name,
     get_stock_ohlcv_history,
     get_investor_trend_individual,
+    get_realtime_price,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -99,6 +100,30 @@ def _remove_holding(idx: int):
 # 메인 렌더
 # ─────────────────────────────────────────────────────────────────────
 
+def _fetch_realtime_prices(holdings: list) -> dict:
+    """보유종목들의 실시간 현재가를 일괄 조회해 session_state에 캐시."""
+    cache_key = f"pf_realtime_{_get_username()}"
+    time_key = f"pf_realtime_ts_{_get_username()}"
+
+    # 30초 이내 재조회 방지
+    now = datetime.datetime.now()
+    last_ts = st.session_state.get(time_key)
+    if last_ts and (now - last_ts).total_seconds() < 30:
+        cached = st.session_state.get(cache_key)
+        if cached:
+            return cached
+
+    result = {}
+    for h in holdings:
+        ticker = h["ticker"]
+        info = get_realtime_price(ticker)
+        result[ticker] = info
+
+    st.session_state[cache_key] = result
+    st.session_state[time_key] = now
+    return result
+
+
 def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
     """보유종목 포트폴리오 탭 렌더링."""
     st.markdown("## 💼 내 보유종목")
@@ -118,8 +143,22 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
         st.info("💡 보유종목을 추가하면 수익률, 수급 흐름을 한눈에 볼 수 있습니다.")
         return
 
+    # ── 실시간 현재가 조회 ──
+    realtime = _fetch_realtime_prices(holdings)
+    ts_key = f"pf_realtime_ts_{_get_username()}"
+    last_ts = st.session_state.get(ts_key)
+    if last_ts:
+        st.caption(f"⏱️ 현재가 기준: {last_ts.strftime('%H:%M:%S')} 갱신")
+
+    # 새로고침 버튼
+    if st.button("🔄 현재가 갱신", key="pf_refresh"):
+        cache_key = f"pf_realtime_{_get_username()}"
+        st.session_state.pop(cache_key, None)
+        st.session_state.pop(ts_key, None)
+        st.rerun()
+
     # ── 포트폴리오 요약 ──
-    _render_summary(holdings, daily_df)
+    _render_summary(holdings, daily_df, realtime)
 
     st.markdown("---")
 
@@ -188,7 +227,7 @@ def _render_add_form(daily_df: pd.DataFrame):
 # 포트폴리오 요약
 # ─────────────────────────────────────────────────────────────────────
 
-def _render_summary(holdings: list, daily_df: pd.DataFrame):
+def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = None):
     total_buy = 0
     total_eval = 0
     rows = []
@@ -199,10 +238,14 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame):
         qty = h["qty"]
         buy_amount = buy_price * qty
 
-        # 현재가 조회
+        # 현재가 조회: 실시간 우선, 없으면 daily_df
         cur_price = 0
         change_rate = 0.0
-        if daily_df is not None and ticker in daily_df.index:
+        if realtime and ticker in realtime:
+            rt = realtime[ticker]
+            cur_price = rt["price"]
+            change_rate = rt["change_rate"]
+        if cur_price == 0 and daily_df is not None and ticker in daily_df.index:
             cur_price = int(daily_df.at[ticker, "종가"])
             change_rate = float(daily_df.at[ticker, "등락률"])
 

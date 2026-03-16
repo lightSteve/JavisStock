@@ -295,6 +295,23 @@ def get_stock_name(ticker: str) -> str:
     return data.get("stockName", ticker)
 
 
+def get_realtime_price(ticker: str) -> dict:
+    """종목의 실시간 현재가/등락률을 캐시 없이 조회.
+    반환: {"price": int, "change_rate": float, "name": str}
+    """
+    url = f"{NAVER_API}/stock/{ticker}/integration"
+    try:
+        resp = _session.get(url, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+        close = _to_int(data.get("closePrice", 0))
+        rate = float(data.get("fluctuationsRatio", 0) or 0)
+        name = data.get("stockName", ticker)
+        return {"price": close, "change_rate": rate, "name": name}
+    except Exception:
+        return {"price": 0, "change_rate": 0.0, "name": ticker}
+
+
 # ---------------------------------------------------------------------------
 # 공개 API : 투자자별 순매수 (수급)
 # ---------------------------------------------------------------------------
