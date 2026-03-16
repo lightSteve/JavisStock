@@ -1,0 +1,487 @@
+"""
+💼 내 보유종목 포트폴리오
+- 보유종목 추가/삭제 (종목코드, 매수가, 수량, 매수일)
+- 현재가 기준 수익률 & 평가금액
+- 종목별 기관/외국인/개인 수급 흐름
+- 차트: 매수가 기준선 + 현재가 추이
+- JSON 파일 영속 저장
+"""
+
+import json
+import os
+import datetime
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
+
+from data.fetcher import (
+    get_stock_name,
+    get_stock_ohlcv_history,
+    get_investor_trend_individual,
+)
+from analysis.indicators import calc_moving_averages
+
+# ─────────────────────────────────────────────────────────────────────
+# 파일 저장/로드
+# ─────────────────────────────────────────────────────────────────────
+
+_PORTFOLIO_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "portfolio_data",
+)
+_PORTFOLIO_FILE = os.path.join(_PORTFOLIO_DIR, "my_portfolio.json")
+_SESSION_KEY = "my_portfolio"
+
+
+def _ensure_dir():
+    os.makedirs(_PORTFOLIO_DIR, exist_ok=True)
+
+
+def _load_portfolio() -> list:
+    if os.path.exists(_PORTFOLIO_FILE):
+        try:
+            with open(_PORTFOLIO_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+        except (json.JSONDecodeError, IOError):
+            pass
+    return []
+
+
+def _save_portfolio(entries: list):
+    _ensure_dir()
+    with open(_PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+
+
+def _get_portfolio() -> list:
+    if _SESSION_KEY not in st.session_state:
+        st.session_state[_SESSION_KEY] = _load_portfolio()
+    return st.session_state[_SESSION_KEY]
+
+
+def _add_holding(entry: dict):
+    entries = _get_portfolio()
+    entries.append(entry)
+    _save_portfolio(entries)
+
+
+def _remove_holding(idx: int):
+    entries = _get_portfolio()
+    if 0 <= idx < len(entries):
+        entries.pop(idx)
+        _save_portfolio(entries)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 메인 렌더
+# ─────────────────────────────────────────────────────────────────────
+
+def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
+    """보유종목 포트폴리오 탭 렌더링."""
+    st.markdown("## 💼 내 보유종목")
+
+    holdings = _get_portfolio()
+
+    # ── 보유종목 추가 폼 ──
+    _render_add_form(daily_df)
+
+    if not holdings:
+        st.info("💡 보유종목을 추가하면 수익률, 수급 흐름을 한눈에 볼 수 있습니다.")
+        return
+
+    # ── 포트폴리오 요약 ──
+    _render_summary(holdings, daily_df)
+
+    st.markdown("---")
+
+    # ── 종목별 상세 분석 ──
+    for i, h in enumerate(holdings):
+        _render_holding_detail(i, h, daily_df, date_str)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 보유종목 추가 폼
+# ─────────────────────────────────────────────────────────────────────
+
+def _render_add_form(daily_df: pd.DataFrame):
+    with st.expander("➕ 보유종목 추가", expanded=False):
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+        with col1:
+            # 종목 검색 (selectbox)
+            stock_options = []
+            if daily_df is not None and not daily_df.empty and "종목명" in daily_df.columns:
+                for ticker, row in daily_df.iterrows():
+                    name = row.get("종목명", ticker)
+                    stock_options.append(f"{name}({ticker})")
+            add_ticker_input = st.selectbox(
+                "종목 선택",
+                options=[""] + stock_options,
+                index=0,
+                key="pf_add_ticker",
+            )
+        with col2:
+            add_price = st.number_input(
+                "매수 단가(원)", min_value=0, value=0, step=100, key="pf_add_price"
+            )
+        with col3:
+            add_qty = st.number_input(
+                "수량(주)", min_value=0, value=0, step=1, key="pf_add_qty"
+            )
+        with col4:
+            add_date = st.date_input(
+                "매수일",
+                value=datetime.date.today(),
+                key="pf_add_date",
+            )
+
+        if st.button("✅ 추가", key="pf_add_btn", use_container_width=True, type="primary"):
+            if not add_ticker_input:
+                st.warning("종목을 선택해주세요.")
+            elif add_price <= 0:
+                st.warning("매수 단가를 입력해주세요.")
+            elif add_qty <= 0:
+                st.warning("수량을 입력해주세요.")
+            else:
+                ticker = add_ticker_input.split("(")[-1].rstrip(")")
+                name = add_ticker_input.split("(")[0]
+                _add_holding({
+                    "ticker": ticker,
+                    "name": name,
+                    "buy_price": add_price,
+                    "qty": add_qty,
+                    "buy_date": add_date.strftime("%Y-%m-%d"),
+                })
+                st.success(f"✅ {name}({ticker}) 추가 완료!")
+                st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 포트폴리오 요약
+# ─────────────────────────────────────────────────────────────────────
+
+def _render_summary(holdings: list, daily_df: pd.DataFrame):
+    total_buy = 0
+    total_eval = 0
+    rows = []
+
+    for i, h in enumerate(holdings):
+        ticker = h["ticker"]
+        buy_price = h["buy_price"]
+        qty = h["qty"]
+        buy_amount = buy_price * qty
+
+        # 현재가 조회
+        cur_price = 0
+        change_rate = 0.0
+        if daily_df is not None and ticker in daily_df.index:
+            cur_price = int(daily_df.at[ticker, "종가"])
+            change_rate = float(daily_df.at[ticker, "등락률"])
+
+        eval_amount = cur_price * qty
+        pnl = eval_amount - buy_amount
+        pnl_rate = ((cur_price / buy_price) - 1) * 100 if buy_price > 0 else 0
+
+        total_buy += buy_amount
+        total_eval += eval_amount
+
+        rows.append({
+            "idx": i,
+            "종목명": h.get("name", ticker),
+            "티커": ticker,
+            "매수가": f"{buy_price:,}",
+            "현재가": f"{cur_price:,}",
+            "수량": f"{qty:,}",
+            "매수금액": f"{buy_amount:,.0f}",
+            "평가금액": f"{eval_amount:,.0f}",
+            "손익": pnl,
+            "수익률": pnl_rate,
+            "당일등락": change_rate,
+            "매수일": h.get("buy_date", "-"),
+        })
+
+    # 전체 요약 메트릭
+    total_pnl = total_eval - total_buy
+    total_pnl_rate = ((total_eval / total_buy) - 1) * 100 if total_buy > 0 else 0
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("💰 총 매수금액", f"{total_buy:,.0f}원")
+    with m2:
+        st.metric("📊 총 평가금액", f"{total_eval:,.0f}원")
+    with m3:
+        pnl_color = "🔴" if total_pnl >= 0 else "🔵"
+        st.metric(f"{pnl_color} 총 손익", f"{total_pnl:+,.0f}원")
+    with m4:
+        st.metric("📈 총 수익률", f"{total_pnl_rate:+.2f}%")
+
+    # 종목별 테이블
+    if rows:
+        st.markdown("### 📋 보유종목 현황")
+        for r in rows:
+            pnl_val = r["손익"]
+            pnl_rate_val = r["수익률"]
+            day_change = r["당일등락"]
+
+            pnl_color = "#ef4444" if pnl_val >= 0 else "#3b82f6"
+            day_color = "#ef4444" if day_change >= 0 else "#3b82f6"
+
+            st.markdown(
+                f'<div style="background:#fff; border-radius:12px; padding:14px 18px; '
+                f'margin-bottom:8px; border:1px solid #e2e8f0; '
+                f'display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">'
+                f'<div style="min-width:120px;">'
+                f'<div style="font-weight:700; font-size:0.95em; color:#1e293b;">{r["종목명"]}</div>'
+                f'<div style="font-size:0.75em; color:#94a3b8;">{r["티커"]} · 매수일 {r["매수일"]}</div>'
+                f'</div>'
+                f'<div style="text-align:center; min-width:80px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">매수가</div>'
+                f'<div style="font-weight:600; font-size:0.88em;">{r["매수가"]}원</div>'
+                f'</div>'
+                f'<div style="text-align:center; min-width:80px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">현재가</div>'
+                f'<div style="font-weight:600; font-size:0.88em;">{r["현재가"]}원</div>'
+                f'</div>'
+                f'<div style="text-align:center; min-width:60px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">수량</div>'
+                f'<div style="font-weight:600; font-size:0.88em;">{r["수량"]}주</div>'
+                f'</div>'
+                f'<div style="text-align:center; min-width:100px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">평가손익</div>'
+                f'<div style="font-weight:700; font-size:0.95em; color:{pnl_color};">'
+                f'{pnl_val:+,.0f}원 ({pnl_rate_val:+.1f}%)</div>'
+                f'</div>'
+                f'<div style="text-align:center; min-width:60px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">당일</div>'
+                f'<div style="font-weight:600; font-size:0.88em; color:{day_color};">'
+                f'{day_change:+.2f}%</div>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 종목별 상세 (차트 + 수급)
+# ─────────────────────────────────────────────────────────────────────
+
+def _render_holding_detail(idx: int, holding: dict, daily_df: pd.DataFrame, date_str: str):
+    ticker = holding["ticker"]
+    name = holding.get("name", ticker)
+    buy_price = holding["buy_price"]
+    buy_date = holding.get("buy_date", "")
+
+    with st.expander(f"📊 {name} ({ticker}) 상세 분석", expanded=False):
+        # 삭제 버튼
+        col_del, _ = st.columns([1, 5])
+        with col_del:
+            if st.button("🗑️ 종목 삭제", key=f"pf_del_{idx}", type="secondary"):
+                _remove_holding(idx)
+                st.rerun()
+
+        # 차트 + 수급
+        _render_holding_chart(ticker, date_str, buy_price, buy_date, idx)
+
+        # 수급 상세
+        _render_supply_detail(ticker, idx)
+
+
+def _render_holding_chart(ticker: str, date_str: str, buy_price: int, buy_date: str, idx: int):
+    """매수가 기준선이 포함된 캔들차트 + 거래량."""
+    end_dt = datetime.datetime.strptime(date_str, "%Y%m%d")
+
+    # 매수일 기준으로 차트 시작일 결정 (매수일 -30일 또는 최소 120일)
+    if buy_date:
+        try:
+            buy_dt = datetime.datetime.strptime(buy_date, "%Y-%m-%d")
+            chart_start = buy_dt - datetime.timedelta(days=30)
+        except ValueError:
+            chart_start = end_dt - datetime.timedelta(days=200)
+    else:
+        chart_start = end_dt - datetime.timedelta(days=200)
+
+    # 최소 120일은 보장
+    min_start = end_dt - datetime.timedelta(days=200)
+    if chart_start > min_start:
+        chart_start = min_start
+
+    ohlcv = get_stock_ohlcv_history(ticker, chart_start.strftime("%Y%m%d"), date_str)
+    if ohlcv.empty:
+        st.warning("시세 데이터를 가져올 수 없습니다.")
+        return
+
+    ohlcv = calc_moving_averages(ohlcv)
+    ohlcv.index = pd.to_datetime(ohlcv.index)
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.75, 0.25],
+        vertical_spacing=0.03,
+    )
+
+    # 캔들차트
+    fig.add_trace(
+        go.Candlestick(
+            x=ohlcv.index, open=ohlcv["시가"], high=ohlcv["고가"],
+            low=ohlcv["저가"], close=ohlcv["종가"],
+            increasing_line_color="#ef4444", increasing_fillcolor="#ef4444",
+            decreasing_line_color="#3b82f6", decreasing_fillcolor="#3b82f6",
+            name="캔들",
+        ),
+        row=1, col=1,
+    )
+
+    # 이동평균선
+    ma_colors = {"MA5": "#f59e0b", "MA20": "#10b981", "MA60": "#6366f1", "MA120": "#ec4899"}
+    for ma, color in ma_colors.items():
+        if ma in ohlcv.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=ohlcv.index, y=ohlcv[ma], mode="lines",
+                    line=dict(width=1, color=color), name=ma,
+                ),
+                row=1, col=1,
+            )
+
+    # ── 매수가 기준선 ──
+    fig.add_hline(
+        y=buy_price, line_dash="dash", line_color="#f97316", line_width=2,
+        annotation_text=f"매수가 {buy_price:,}원",
+        annotation_position="top left",
+        annotation_font_color="#f97316",
+        annotation_font_size=11,
+        row=1, col=1,
+    )
+
+    # 매수일 세로선
+    if buy_date:
+        try:
+            buy_dt = pd.Timestamp(buy_date)
+            fig.add_vline(
+                x=buy_dt.timestamp() * 1000,
+                line_dash="dot", line_color="#f97316", line_width=1,
+                row=1, col=1,
+            )
+        except Exception:
+            pass
+
+    # 거래량
+    colors = ["#ef4444" if c >= o else "#3b82f6" for c, o in zip(ohlcv["종가"], ohlcv["시가"])]
+    fig.add_trace(
+        go.Bar(x=ohlcv.index, y=ohlcv["거래량"], marker_color=colors, name="거래량", opacity=0.6),
+        row=2, col=1,
+    )
+
+    fig.update_layout(
+        height=450,
+        margin=dict(l=0, r=0, t=30, b=0),
+        xaxis_rangeslider_visible=False,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10),
+        template="plotly_white",
+    )
+    fig.update_xaxes(type="date")
+
+    st.plotly_chart(fig, use_container_width=True, key=f"pf_chart_{idx}")
+
+
+def _render_supply_detail(ticker: str, idx: int):
+    """기관/외국인/개인 수급 흐름 차트."""
+    try:
+        supply = get_investor_trend_individual(ticker)
+    except Exception:
+        supply = pd.DataFrame()
+
+    if supply.empty:
+        st.caption("수급 데이터를 가져올 수 없습니다.")
+        return
+
+    st.markdown("#### 📊 투자자별 수급 흐름 (최근 5거래일)")
+
+    supply.index = pd.to_datetime(supply.index)
+    supply_sorted = supply.sort_index()
+
+    # 수급 누적
+    supply_cum = supply_sorted.cumsum()
+
+    # 일별 수급 바 차트
+    fig_bar = go.Figure()
+
+    investor_colors = {
+        "기관합계": "#ef4444",
+        "외국인합계": "#3b82f6",
+        "개인": "#94a3b8",
+    }
+
+    for col in ["기관합계", "외국인합계", "개인"]:
+        if col in supply_sorted.columns:
+            # 억 단위로 표시
+            values = supply_sorted[col] / 1e8
+            fig_bar.add_trace(
+                go.Bar(
+                    x=supply_sorted.index.strftime("%m/%d"),
+                    y=values,
+                    name=col,
+                    marker_color=investor_colors.get(col, "#64748b"),
+                )
+            )
+
+    fig_bar.update_layout(
+        barmode="group",
+        height=280,
+        margin=dict(l=0, r=0, t=30, b=0),
+        yaxis_title="순매수(억원)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10),
+        template="plotly_white",
+    )
+    st.plotly_chart(fig_bar, use_container_width=True, key=f"pf_supply_bar_{idx}")
+
+    # 누적 수급 라인
+    fig_cum = go.Figure()
+    for col in ["기관합계", "외국인합계", "개인"]:
+        if col in supply_cum.columns:
+            values = supply_cum[col] / 1e8
+            fig_cum.add_trace(
+                go.Scatter(
+                    x=supply_cum.index.strftime("%m/%d"),
+                    y=values,
+                    mode="lines+markers",
+                    name=f"{col} 누적",
+                    line=dict(color=investor_colors.get(col, "#64748b"), width=2),
+                )
+            )
+
+    fig_cum.update_layout(
+        height=250,
+        margin=dict(l=0, r=0, t=30, b=0),
+        yaxis_title="누적 순매수(억원)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font_size=10),
+        template="plotly_white",
+    )
+    st.plotly_chart(fig_cum, use_container_width=True, key=f"pf_supply_cum_{idx}")
+
+    # 수급 요약 텍스트
+    if not supply_sorted.empty:
+        latest = supply_sorted.iloc[-1] if len(supply_sorted) > 0 else pd.Series()
+        total = supply_sorted.sum()
+
+        inst_5d = total.get("기관합계", 0) / 1e8
+        frgn_5d = total.get("외국인합계", 0) / 1e8
+        indv_5d = total.get("개인", 0) / 1e8
+
+        inst_icon = "🔴" if inst_5d > 0 else "🔵"
+        frgn_icon = "🔴" if frgn_5d > 0 else "🔵"
+        indv_icon = "🔴" if indv_5d > 0 else "🔵"
+
+        st.markdown(
+            f'<div style="background:#f8fafc; border-radius:10px; padding:12px 16px; '
+            f'border:1px solid #e2e8f0; font-size:0.85em;">'
+            f'<b>5일 누적 수급:</b> '
+            f'{inst_icon} 기관 {inst_5d:+,.1f}억 · '
+            f'{frgn_icon} 외국인 {frgn_5d:+,.1f}억 · '
+            f'{indv_icon} 개인 {indv_5d:+,.1f}억'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
