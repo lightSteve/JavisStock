@@ -150,7 +150,7 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
     ts_key = f"pf_realtime_ts_{_get_username()}"
     last_ts = st.session_state.get(ts_key)
     if last_ts:
-        st.caption(f"⏱️ 현재가 기준: {last_ts.strftime('%H:%M:%S')} 갱신")
+        st.caption(f"⏱️ 현재가 기준: {last_ts.strftime('%H:%M:%S')} 갱신  ·  수급(기관/외국인)은 장 마감 후 확정 반영")
 
     # 새로고침 버튼 — 현재가 + 수급 동시 갱신
     if st.button("🔄 현재가 갱신", key="pf_refresh"):
@@ -266,15 +266,18 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         total_buy += buy_amount
         total_eval += eval_amount
 
-        # 당일 기관/외국인 수급 조회
-        inst_today = 0.0
-        frgn_today = 0.0
+        # 최근 확정일 기관/외국인 수급 조회
+        inst_latest = 0.0
+        frgn_latest = 0.0
+        supply_date_str = ""
         try:
             supply = get_investor_trend_individual(ticker)
             if not supply.empty:
-                latest = supply.sort_index().iloc[-1]
-                inst_today = latest.get("기관합계", 0) / 1e8
-                frgn_today = latest.get("외국인합계", 0) / 1e8
+                supply_sorted = supply.sort_index()
+                latest = supply_sorted.iloc[-1]
+                inst_latest = latest.get("기관합계", 0) / 1e8
+                frgn_latest = latest.get("외국인합계", 0) / 1e8
+                supply_date_str = supply_sorted.index[-1].strftime("%m/%d")
         except Exception:
             pass
 
@@ -291,8 +294,9 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             "수익률": pnl_rate,
             "당일등락": change_rate,
             "매수일": h.get("buy_date", "-"),
-            "기관당일": inst_today,
-            "외국인당일": frgn_today,
+            "기관최근": inst_latest,
+            "외국인최근": frgn_latest,
+            "수급기준일": supply_date_str,
         })
 
     # 전체 요약 메트릭
@@ -317,8 +321,9 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             pnl_val = r["손익"]
             pnl_rate_val = r["수익률"]
             day_change = r["당일등락"]
-            inst_d = r["기관당일"]
-            frgn_d = r["외국인당일"]
+            inst_d = r["기관최근"]
+            frgn_d = r["외국인최근"]
+            sup_date = r["수급기준일"]
 
             pnl_color = "#ef4444" if pnl_val >= 0 else "#3b82f6"
             day_color = "#ef4444" if day_change >= 0 else "#3b82f6"
@@ -356,12 +361,12 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 f'{day_change:+.2f}%</div>'
                 f'</div>'
                 f'<div style="text-align:center; min-width:90px;">'
-                f'<div style="font-size:0.72em; color:#94a3b8;">기관(당일)</div>'
+                f'<div style="font-size:0.72em; color:#94a3b8;">기관({sup_date})</div>'
                 f'<div style="font-weight:600; font-size:0.85em; color:{inst_color};">'
                 f'{inst_d:+.1f}억</div>'
                 f'</div>'
                 f'<div style="text-align:center; min-width:90px;">'
-                f'<div style="font-size:0.72em; color:#94a3b8;">외국인(당일)</div>'
+                f'<div style="font-size:0.72em; color:#94a3b8;">외국인({sup_date})</div>'
                 f'<div style="font-weight:600; font-size:0.85em; color:{frgn_color};">'
                 f'{frgn_d:+.1f}억</div>'
                 f'</div>'
@@ -413,17 +418,18 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
         frgn_total = total.get("외국인합계", 0) / 1e8
         indv_total = total.get("개인", 0) / 1e8
 
-        # 최근일 수급
+        # 최근 확정일 수급
         latest = supply_sorted.iloc[-1] if len(supply_sorted) > 0 else pd.Series()
-        inst_today = latest.get("기관합계", 0) / 1e8
-        frgn_today = latest.get("외국인합계", 0) / 1e8
+        inst_latest = latest.get("기관합계", 0) / 1e8
+        frgn_latest = latest.get("외국인합계", 0) / 1e8
+        latest_date = supply_sorted.index[-1].strftime("%m/%d") if len(supply_sorted) > 0 else ""
 
         # 수급 트렌드 판단
-        # 당일 수급
-        today_parts = []
-        today_parts.append(f"기관 {inst_today:+.1f}억")
-        today_parts.append(f"외국인 {frgn_today:+.1f}억")
-        today_line = "📌 당일: " + " / ".join(today_parts)
+        # 최근 확정일 수급
+        latest_parts = []
+        latest_parts.append(f"기관 {inst_latest:+.1f}억")
+        latest_parts.append(f"외국인 {frgn_latest:+.1f}억")
+        today_line = f"📌 최근({latest_date}): " + " / ".join(latest_parts)
 
         # 5일 누적
         parts = []
@@ -601,6 +607,7 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
 def _render_portfolio_briefing(holdings: list, realtime: dict):
     """보유종목 전체 수급 브리핑 — 항상 최신 수급 데이터 기반."""
     st.markdown("### 📋 보유종목 수급 브리핑")
+    st.caption("ℹ️ 수급 데이터는 장 마감 후 확정됩니다. 장중에는 전 거래일 기준입니다.")
 
     # 캐시 클리어 → 최신 수급 데이터 강제 조회
     for h in holdings:
