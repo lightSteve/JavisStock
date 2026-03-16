@@ -87,8 +87,46 @@ st.markdown(
     section[data-testid="stSidebar"] .stMarkdown,
     section[data-testid="stSidebar"] label,
     section[data-testid="stSidebar"] .stSlider label,
-    section[data-testid="stSidebar"] span {
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] .stRadio label span,
+    section[data-testid="stSidebar"] .stCheckbox label span {
         color: #e2e8f0 !important;
+    }
+    /* 사이드바 입력 필드 / 셀렉트박스 / 날짜 내부 글자 */
+    section[data-testid="stSidebar"] input,
+    section[data-testid="stSidebar"] select,
+    section[data-testid="stSidebar"] textarea,
+    section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] span,
+    section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] div,
+    section[data-testid="stSidebar"] .stDateInput input,
+    section[data-testid="stSidebar"] .stDateInput [data-baseweb="input"] div,
+    section[data-testid="stSidebar"] .stMultiSelect span,
+    section[data-testid="stSidebar"] .stNumberInput input,
+    section[data-testid="stSidebar"] [data-baseweb="input"] input,
+    section[data-testid="stSidebar"] [data-baseweb="select"] div {
+        color: #f1f5f9 !important;
+    }
+    /* 사이드바 입력 배경을 약간 밝게 */
+    section[data-testid="stSidebar"] [data-baseweb="input"],
+    section[data-testid="stSidebar"] [data-baseweb="select"] > div:first-child,
+    section[data-testid="stSidebar"] .stDateInput [data-baseweb="input"] {
+        background-color: #334155 !important;
+        border-color: #475569 !important;
+    }
+    /* 사이드바 placeholder 색상 */
+    section[data-testid="stSidebar"] input::placeholder {
+        color: #94a3b8 !important;
+    }
+    /* 사이드바 버튼 텍스트 */
+    section[data-testid="stSidebar"] .stButton button {
+        color: #f1f5f9 !important;
+        background-color: #475569;
+        border-color: #64748b !important;
+    }
+    section[data-testid="stSidebar"] .stButton button[kind="primary"] {
+        background-color: #4f46e5 !important;
+        color: white !important;
     }
 
     /* ── 헤더 ── */
