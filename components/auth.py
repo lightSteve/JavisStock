@@ -85,56 +85,56 @@ def render_login_sidebar():
             st.rerun()
         return
 
-    # 로그인 / 회원가입 탭
-    login_tab, register_tab = st.sidebar.tabs(["로그인", "회원가입"])
+    # 로그인 / 회원가입 모드 선택
+    mode = st.sidebar.radio(
+        "🔐", ["로그인", "회원가입"], horizontal=True, key="auth_mode", label_visibility="collapsed",
+    )
 
-    with login_tab:
-        login_name = st.text_input(
+    if mode == "로그인":
+        login_name = st.sidebar.text_input(
             "닉네임", placeholder="닉네임", key="login_name",
         )
-        login_pw = st.text_input(
+        login_pw = st.sidebar.text_input(
             "비밀번호", type="password", placeholder="비밀번호", key="login_pw",
         )
-        if st.button("✅ 로그인", key="btn_login", use_container_width=True, type="primary"):
+        if st.sidebar.button("✅ 로그인", key="btn_login", use_container_width=True, type="primary"):
             if not login_name or not login_pw:
-                st.error("닉네임과 비밀번호를 입력해주세요.")
+                st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
             else:
                 safe_name = _sanitize_username(login_name)
                 users = _load_users()
                 if safe_name not in users:
-                    st.error("등록되지 않은 닉네임입니다.")
+                    st.sidebar.error("등록되지 않은 닉네임입니다.")
                 elif users[safe_name]["password_hash"] != _hash_password(login_pw):
-                    st.error("비밀번호가 틀렸습니다.")
+                    st.sidebar.error("비밀번호가 틀렸습니다.")
                 else:
                     st.session_state["username"] = safe_name
-                    st.success(f"✅ {safe_name} 님 환영합니다!")
                     st.rerun()
-
-    with register_tab:
-        reg_name = st.text_input(
+    else:
+        reg_name = st.sidebar.text_input(
             "닉네임", placeholder="사용할 닉네임", key="reg_name",
         )
-        reg_pw = st.text_input(
+        reg_pw = st.sidebar.text_input(
             "비밀번호", type="password", placeholder="비밀번호 (4자 이상)", key="reg_pw",
         )
-        reg_pw2 = st.text_input(
+        reg_pw2 = st.sidebar.text_input(
             "비밀번호 확인", type="password", placeholder="비밀번호 재입력", key="reg_pw2",
         )
-        if st.button("📝 회원가입", key="btn_register", use_container_width=True):
+        if st.sidebar.button("📝 회원가입", key="btn_register", use_container_width=True):
             if not reg_name or not reg_pw:
-                st.error("닉네임과 비밀번호를 입력해주세요.")
+                st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
             elif len(reg_pw) < 4:
-                st.error("비밀번호는 4자 이상이어야 합니다.")
+                st.sidebar.error("비밀번호는 4자 이상이어야 합니다.")
             elif reg_pw != reg_pw2:
-                st.error("비밀번호가 일치하지 않습니다.")
+                st.sidebar.error("비밀번호가 일치하지 않습니다.")
             else:
                 safe_name = _sanitize_username(reg_name)
                 if not safe_name:
-                    st.error("유효한 닉네임을 입력해주세요.")
+                    st.sidebar.error("유효한 닉네임을 입력해주세요.")
                 else:
                     users = _load_users()
                     if safe_name in users:
-                        st.error(f"'{safe_name}'은(는) 이미 사용중인 닉네임입니다.")
+                        st.sidebar.error(f"'{safe_name}'은(는) 이미 사용중인 닉네임입니다.")
                     else:
                         from datetime import datetime
                         users[safe_name] = {
@@ -143,5 +143,4 @@ def render_login_sidebar():
                         }
                         _save_users(users)
                         st.session_state["username"] = safe_name
-                        st.success(f"🎉 가입 완료! {safe_name} 님 환영합니다!")
                         st.rerun()
