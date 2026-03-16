@@ -25,6 +25,7 @@ from data.fetcher import (
     is_kis_configured,
     get_kis_stock_investor,
     get_kis_access_token,
+    get_kis_realtime_price,
     clear_kis_investor_cache,
     save_kis_credentials,
     delete_kis_credentials,
@@ -100,10 +101,15 @@ def _fetch_realtime_prices(holdings: list) -> dict:
             return cached
 
     result = {}
+    kis_ok = is_kis_configured()
     for h in holdings:
         ticker = h["ticker"]
-        info = get_realtime_price(ticker)
-        result[ticker] = info
+        if kis_ok:
+            kis = get_kis_realtime_price(ticker)
+            if kis and kis.get("price", 0) > 0:
+                result[ticker] = {"price": kis["price"], "change_rate": kis["change_rate"], "name": h.get("name", ticker)}
+                continue
+        result[ticker] = get_realtime_price(ticker)
 
     st.session_state[cache_key] = result
     st.session_state[time_key] = now

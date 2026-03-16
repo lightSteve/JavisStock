@@ -791,6 +791,55 @@ def clear_kis_investor_cache(ticker: str = None):
             _cache.pop(k, None)
 
 
+def get_kis_realtime_price(ticker: str) -> dict:
+    """
+    KIS TR FHKST01010100: 주식현재가 시세
+    현재가 / 전일대비 등락률 실시간 조회 (30초 캐시).
+    반환: {"price": int, "change_rate": float} 또는 {}
+    """
+    if not is_kis_configured():
+        return {}
+    cache_key = f"kis_price_{ticker}"
+    now = time.time()
+    cached = _cache.get(cache_key)
+    if cached and now - cached.get("_ts", 0) < 30:
+        return {k: v for k, v in cached.items() if not k.startswith("_")}
+
+    tok = get_kis_access_token()
+    if not tok:
+        return {}
+    app_key, app_secret = _get_kis_credentials()
+    try:
+        resp = requests.get(
+            f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHKST01010100",
+                "custtype": "P",
+            },
+            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("rt_cd") != "0":
+            return {}
+        item = data.get("output", {})
+        price = int(str(item.get("stck_prpr", "0")).replace(",", "") or 0)
+        rate_str = str(item.get("prdy_ctrt", "0")).replace("+", "").replace(",", "")
+        try:
+            rate = float(rate_str)
+        except ValueError:
+            rate = 0.0
+        result = {"price": price, "change_rate": rate, "_ts": now}
+        _cache[cache_key] = result
+        return {k: v for k, v in result.items() if not k.startswith("_")}
+    except Exception:
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # 종합 데이터 빌더 (메인 파이프라인)
 # ---------------------------------------------------------------------------
