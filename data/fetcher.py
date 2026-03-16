@@ -552,6 +552,76 @@ def get_index_ohlcv(index_code: str = "KOSPI", count: int = 120) -> pd.DataFrame
 
 
 # ---------------------------------------------------------------------------
+# 장중 시장 전체 투자자 수급 (실시간 - KOSPI/KOSDAQ 합산)
+# ---------------------------------------------------------------------------
+
+def get_market_investor_trend() -> Dict:
+    """
+    KOSPI + KOSDAQ 시장 전체 기관/외국인/개인 순매매 (장중 실시간).
+    반환: {
+        "bizdate": "20260316",
+        "kospi": {"personal": +5957, "foreign": -3327, "institution": -2678},
+        "kosdaq": {"personal": +3652, "foreign": -3135, "institution": -240},
+        "total": {"personal": +9609, "foreign": -6462, "institution": -2918},
+        "is_today": True
+    }
+    """
+    cache_key = "market_investor_trend"
+    now = time.time()
+    cached = _cache.get(cache_key)
+    if cached and now - cached.get("_ts", 0) < 60:  # 1분 캐시
+        return cached
+
+    result = {"bizdate": "", "kospi": {}, "kosdaq": {}, "total": {}, "is_today": False}
+    today_str = datetime.datetime.now().strftime("%Y%m%d")
+
+    def _parse_val(s: str) -> float:
+        """'+5,957' → 5957.0  /  '-3,327' → -3327.0 (단위: 억원)"""
+        if not s:
+            return 0.0
+        sign = -1 if s.startswith("-") else 1
+        num = re.sub(r"[^0-9.]", "", s)
+        return sign * float(num) if num else 0.0
+
+    totals = {"personal": 0.0, "foreign": 0.0, "institution": 0.0}
+
+    for idx_code, key in [("KOSPI", "kospi"), ("KOSDAQ", "kosdaq")]:
+        url = f"{NAVER_API}/index/{idx_code}/trend"
+        try:
+            resp = _session.get(url, timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, list) or not data:
+                continue
+            latest = data[0]
+            biz = latest.get("bizdate", "")
+            if not result["bizdate"]:
+                result["bizdate"] = biz
+                result["is_today"] = (biz == today_str)
+
+            vals = {
+                "personal": _parse_val(latest.get("personalValue", "0")),
+                "foreign": _parse_val(latest.get("foreignValue", "0")),
+                "institution": _parse_val(latest.get("institutionalValue", "0")),
+            }
+            result[key] = vals
+            for k in totals:
+                totals[k] += vals[k]
+        except Exception:
+            continue
+
+    result["total"] = totals
+    result["_ts"] = now
+    _cache[cache_key] = result
+    return result
+
+
+def clear_market_investor_cache():
+    """장중 수급 캐시 초기화."""
+    _cache.pop("market_investor_trend", None)
+
+
+# ---------------------------------------------------------------------------
 # 종합 데이터 빌더 (메인 파이프라인)
 # ---------------------------------------------------------------------------
 

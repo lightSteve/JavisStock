@@ -22,6 +22,8 @@ from data.fetcher import (
     get_realtime_price,
     get_stock_news_list,
     clear_integration_cache,
+    get_market_investor_trend,
+    clear_market_investor_cache,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -160,7 +162,11 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
         # 수급(integration) 캐시도 클리어 → 당일 기관/외국인 최신 반영
         for h in holdings:
             clear_integration_cache(h["ticker"])
+        clear_market_investor_cache()
         st.rerun()
+
+    # ── 시장 전체 수급 (장중 실시간) ──
+    _render_market_investor_trend()
 
     # ── 포트폴리오 요약 ──
     _render_summary(holdings, daily_df, realtime)
@@ -231,6 +237,86 @@ def _render_add_form(daily_df: pd.DataFrame):
                 })
                 st.success(f"✅ {name}({ticker}) 추가 완료!")
                 st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 시장 전체 투자자 수급 (장중 실시간)
+# ─────────────────────────────────────────────────────────────────────
+
+def _render_market_investor_trend():
+    """KOSPI/KOSDAQ 시장 전체 기관/외국인/개인 순매매 — 장중 실시간 표시."""
+    trend = get_market_investor_trend()
+    if not trend or not trend.get("bizdate"):
+        return
+
+    bizdate = trend["bizdate"]
+    is_today = trend.get("is_today", False)
+    date_label = f"{bizdate[4:6]}/{bizdate[6:8]}"
+    status_label = "🟢 장중 실시간" if is_today else f"📅 {date_label} 확정"
+
+    def _fmt(v: float) -> str:
+        return f"{v:+,.0f}억"
+
+    def _color(v: float) -> str:
+        return "#ef4444" if v >= 0 else "#3b82f6"
+
+    def _bar(v: float, max_abs: float = 10000) -> str:
+        pct = min(abs(v) / max_abs * 100, 100)
+        color = "#ef4444" if v >= 0 else "#3b82f6"
+        return (
+            f'<div style="background:#f1f5f9; border-radius:4px; height:6px; margin-top:3px;">'
+            f'<div style="width:{pct:.1f}%; background:{color}; height:6px; border-radius:4px;"></div>'
+            f'</div>'
+        )
+
+    kospi = trend.get("kospi", {})
+    kosdaq = trend.get("kosdaq", {})
+    total = trend.get("total", {})
+
+    max_abs = max(
+        abs(total.get("personal", 0)),
+        abs(total.get("foreign", 0)),
+        abs(total.get("institution", 0)),
+        1,
+    )
+
+    def _cell(label: str, v: float) -> str:
+        return (
+            f'<div style="text-align:center; min-width:90px;">'
+            f'<div style="font-size:0.7em; color:#94a3b8; margin-bottom:2px;">{label}</div>'
+            f'<div style="font-weight:700; font-size:0.92em; color:{_color(v)};">{_fmt(v)}</div>'
+            f'{_bar(v, max_abs)}'
+            f'</div>'
+        )
+
+    rows_html = ""
+    for mkt_label, mkt in [("KOSPI", kospi), ("KOSDAQ", kosdaq), ("합산", total)]:
+        bold = "font-weight:700;" if mkt_label == "합산" else ""
+        border_top = "border-top:1px solid #e2e8f0; padding-top:10px; margin-top:6px;" if mkt_label == "합산" else ""
+        rows_html += (
+            f'<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; {border_top}">'
+            f'<div style="min-width:52px; font-size:0.8em; {bold} color:#475569;">{mkt_label}</div>'
+            f'{_cell("개인", mkt.get("personal", 0))}'
+            f'{_cell("외국인", mkt.get("foreign", 0))}'
+            f'{_cell("기관", mkt.get("institution", 0))}'
+            f'</div>'
+        )
+
+    st.markdown(
+        f'<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; '
+        f'padding:14px 18px; margin:10px 0 16px 0;">'
+        f'<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">'
+        f'<span style="font-weight:700; font-size:0.9em; color:#1e293b;">📊 시장 수급</span>'
+        f'<span style="font-size:0.72em; color:#64748b; background:#e2e8f0; border-radius:6px; '
+        f'padding:2px 8px;">{status_label}</span>'
+        f'</div>'
+        f'{rows_html}'
+        f'<div style="font-size:0.68em; color:#94a3b8; margin-top:8px;">'
+        f'단위: 억원 · 순매수(빨강) / 순매도(파랑) · {"장중 1분 갱신 기준" if is_today else "전일 확정 기준"}'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
