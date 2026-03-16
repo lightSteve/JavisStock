@@ -158,6 +158,16 @@ def _fetch_stock_integration(ticker: str) -> Dict:
         return {}
 
 
+def clear_integration_cache(ticker: str = None):
+    """integration 캐시 클리어. ticker=None이면 전체."""
+    if ticker:
+        _cache.pop(f"integration_{ticker}", None)
+    else:
+        keys = [k for k in _cache if k.startswith("integration_")]
+        for k in keys:
+            del _cache[k]
+
+
 # ---------------------------------------------------------------------------
 # 공개 API : 최근 거래일
 # ---------------------------------------------------------------------------

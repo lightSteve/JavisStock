@@ -21,6 +21,7 @@ from data.fetcher import (
     get_investor_trend_individual,
     get_realtime_price,
     get_stock_news_list,
+    clear_integration_cache,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -587,8 +588,12 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
 
 
 def _render_portfolio_briefing(holdings: list, realtime: dict):
-    """보유종목 전체 수급 브리핑."""
+    """보유종목 전체 수급 브리핑 — 항상 최신 수급 데이터 기반."""
     st.markdown("### 📋 보유종목 수급 브리핑")
+
+    # 캐시 클리어 → 최신 수급 데이터 강제 조회
+    for h in holdings:
+        clear_integration_cache(h["ticker"])
 
     for h in holdings:
         ticker = h["ticker"]
