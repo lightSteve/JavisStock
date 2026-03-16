@@ -583,6 +583,25 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 f'</div>',
                 unsafe_allow_html=True,
             )
+            # 삭제 확인 상태
+            confirm_key = f"pf_del_confirm_{r['idx']}"
+            if st.session_state.get(confirm_key):
+                col_yes, col_no, _ = st.columns([1, 1, 6])
+                with col_yes:
+                    if st.button("✅ 삭제 확인", key=f"pf_del_yes_{r['idx']}", type="primary"):
+                        _remove_holding(r['idx'])
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+                with col_no:
+                    if st.button("취소", key=f"pf_del_no_{r['idx']}", type="secondary"):
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+            else:
+                col_btn, _ = st.columns([1, 9])
+                with col_btn:
+                    if st.button("🗑️ 삭제", key=f"pf_del_{r['idx']}", type="secondary"):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────
