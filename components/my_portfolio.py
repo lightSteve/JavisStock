@@ -262,6 +262,18 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         total_buy += buy_amount
         total_eval += eval_amount
 
+        # 당일 기관/외국인 수급 조회
+        inst_today = 0.0
+        frgn_today = 0.0
+        try:
+            supply = get_investor_trend_individual(ticker)
+            if not supply.empty:
+                latest = supply.sort_index().iloc[-1]
+                inst_today = latest.get("기관합계", 0) / 1e8
+                frgn_today = latest.get("외국인합계", 0) / 1e8
+        except Exception:
+            pass
+
         rows.append({
             "idx": i,
             "종목명": h.get("name", ticker),
@@ -275,6 +287,8 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             "수익률": pnl_rate,
             "당일등락": change_rate,
             "매수일": h.get("buy_date", "-"),
+            "기관당일": inst_today,
+            "외국인당일": frgn_today,
         })
 
     # 전체 요약 메트릭
@@ -299,9 +313,13 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             pnl_val = r["손익"]
             pnl_rate_val = r["수익률"]
             day_change = r["당일등락"]
+            inst_d = r["기관당일"]
+            frgn_d = r["외국인당일"]
 
             pnl_color = "#ef4444" if pnl_val >= 0 else "#3b82f6"
             day_color = "#ef4444" if day_change >= 0 else "#3b82f6"
+            inst_color = "#ef4444" if inst_d >= 0 else "#3b82f6"
+            frgn_color = "#ef4444" if frgn_d >= 0 else "#3b82f6"
 
             st.markdown(
                 f'<div style="background:#fff; border-radius:12px; padding:14px 18px; '
@@ -332,6 +350,16 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 f'<div style="font-size:0.72em; color:#94a3b8;">당일</div>'
                 f'<div style="font-weight:600; font-size:0.88em; color:{day_color};">'
                 f'{day_change:+.2f}%</div>'
+                f'</div>'
+                f'<div style="text-align:center; min-width:90px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">기관(당일)</div>'
+                f'<div style="font-weight:600; font-size:0.85em; color:{inst_color};">'
+                f'{inst_d:+.1f}억</div>'
+                f'</div>'
+                f'<div style="text-align:center; min-width:90px;">'
+                f'<div style="font-size:0.72em; color:#94a3b8;">외국인(당일)</div>'
+                f'<div style="font-weight:600; font-size:0.85em; color:{frgn_color};">'
+                f'{frgn_d:+.1f}억</div>'
                 f'</div>'
                 f'</div>',
                 unsafe_allow_html=True,
