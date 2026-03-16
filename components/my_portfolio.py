@@ -26,6 +26,7 @@ from data.fetcher import (
     clear_market_investor_cache,
     is_kis_configured,
     get_kis_stock_investor,
+    get_kis_access_token,
     clear_kis_investor_cache,
     save_kis_credentials,
     delete_kis_credentials,
@@ -204,10 +205,55 @@ def _render_kis_settings():
     with st.expander(label, expanded=not configured):
         if configured:
             st.success("✅ KIS API 키가 설정되어 있습니다. 보유종목 기관/외국인 수급이 장중 실시간으로 표시됩니다.")
-            if st.button("🗑️ KIS 키 삭제", key="kis_delete", type="secondary"):
-                delete_kis_credentials()
-                st.success("삭제됐습니다.")
-                st.rerun()
+            col_t, col_d = st.columns([1, 1])
+            with col_t:
+                if st.button("🔧 연결 테스트", key="kis_test", type="secondary"):
+                    with st.spinner("KIS API 테스트 중..."):
+                        tok = get_kis_access_token()
+                        if not tok:
+                            st.error("❌ 토큰 발급 실패 — App Key / App Secret을 확인해주세요.")
+                        else:
+                            st.success(f"✅ 토큰 발급 성공: {tok[:20]}...")
+                            import requests as _req
+                            from data.fetcher import _get_kis_credentials, KIS_API_BASE
+                            app_key, app_secret = _get_kis_credentials()
+                            try:
+                                r = _req.get(
+                                    f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor",
+                                    headers={
+                                        "Authorization": f"Bearer {tok}",
+                                        "appkey": app_key,
+                                        "appsecret": app_secret,
+                                        "tr_id": "FHKST02010100",
+                                        "custtype": "P",
+                                    },
+                                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "005930"},
+                                    timeout=10,
+                                )
+                                data = r.json()
+                                rt_cd = data.get("rt_cd", "?")
+                                msg = data.get("msg1", "")
+                                if rt_cd == "0":
+                                    output = data.get("output", {})
+                                    if isinstance(output, list):
+                                        output = output[0] if output else {}
+                                    frgn = output.get("frgn_ntby_tr_pbmn", "N/A")
+                                    orgn = output.get("orgn_ntby_tr_pbmn", "N/A")
+                                    indv = output.get("indv_ntby_tr_pbmn", "N/A")
+                                    st.success(
+                                        f"✅ 수급 조회 성공 (삼성전자 기준)\n"
+                                        f"외국인: {frgn}원 | 기관: {orgn}원 | 개인: {indv}원"
+                                    )
+                                else:
+                                    st.error(f"❌ API 오류 rt_cd={rt_cd}: {msg}")
+                                    st.code(str(data)[:600])
+                            except Exception as e:
+                                st.error(f"❌ 요청 실패: {e}")
+            with col_d:
+                if st.button("🗑️ KIS 키 삭제", key="kis_delete", type="secondary"):
+                    delete_kis_credentials()
+                    st.success("삭제됐습니다.")
+                    st.rerun()
         else:
             st.markdown(
                 "**한국투자증권 Open API** 앱 키를 입력하면 보유종목의 기관/외국인 수급을 **장중 실시간**으로 표시합니다.\n\n"
