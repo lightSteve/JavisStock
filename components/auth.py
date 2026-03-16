@@ -86,8 +86,8 @@ def render_login_sidebar():
         return
 
     # 로그인 / 회원가입 모드 선택
-    mode = st.sidebar.radio(
-        "🔐", ["로그인", "회원가입"], horizontal=True, key="auth_mode", label_visibility="collapsed",
+    mode = st.sidebar.selectbox(
+        "🔐 계정", ["로그인", "회원가입"], key="auth_mode",
     )
 
     if mode == "로그인":
