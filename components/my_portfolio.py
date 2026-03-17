@@ -550,19 +550,8 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         # KIS 연결 상태 배지
         if is_kis_configured():
             any_kis_live = any(r.get("수급실시간") for r in rows)
-            # 실시간 rows 중 모든 값이 0.0인 경우 감지 (파싱 실패 가능성)
-            live_rows = [r for r in rows if r.get("수급실시간")]
-            all_vals_zero = live_rows and all(
-                r.get("기관최근", 0) == 0 and r.get("외국인최근", 0) == 0
-                for r in live_rows
-            )
-            if any_kis_live and not all_vals_zero:
-                st.caption("🔴 KIS API 연결됨 · 기관/외국인 수급 장중 실시간 갱신 (1분 주기)")
-            elif any_kis_live and all_vals_zero:
-                diag = get_kis_investor_last_diag()
-                st.caption("🔴 KIS API 연결됨 · ⚠️ 수급 값이 0 — 응답 구조 확인 필요")
-                if diag:
-                    st.caption(f"🔍 응답 키: {diag}")
+            if any_kis_live:
+                st.caption("🔴 KIS API 연결됨 · 기관/외국인 수급 당일 실시간 (1분 주기)")
             else:
                 err = get_kis_investor_last_error()
                 if err:

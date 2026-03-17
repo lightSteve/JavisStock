@@ -808,19 +808,33 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             diag["output1_keys"] = f"list[{len(raw_output1)}] row0={list(raw_output1[0].keys())}"
         _cache["_kis_inv_last_diag"] = str(diag)
 
+        def _s(v) -> str:
+            return str(v).replace(",", "").strip() if v is not None else "0"
+
         def _try_parse_dict(d: dict) -> tuple:
-            """dict에서 외국인/기관/개인 순매수 거래대금 추출.
-            tr_pbmn이 모두 0이면 qty × stck_clpr 로 금액 추정."""
-            def _s(v) -> str:
-                return str(v).replace(",", "").strip() if v is not None else "0"
+            """외국인/기관/개인 순매수 거래대금 추출.
+            우선순위:
+              1) frgn_ntby_tr_pbmn (순매수 거래대금 — 장 마감 후 확정)
+              2) frgn_shnu_tr_pbmn - frgn_seln_tr_pbmn (매수-매도, 장중 실시간)
+              3) frgn_ntby_qty × stck_clpr (수량 × 종가 추정)
+            """
+            frgn = _eok_str(_s(d.get("frgn_ntby_tr_pbmn") or "0"))
+            orgn = _eok_str(_s(d.get("orgn_ntby_tr_pbmn") or "0"))
+            indv = _eok_str(_s(d.get("prsn_ntby_tr_pbmn") or "0"))
 
-            frgn = _eok_str(_s(d.get("frgn_ntby_tr_pbmn") or d.get("frgn_ntby_pbmn") or "0"))
-            orgn = _eok_str(_s(d.get("orgn_ntby_tr_pbmn") or d.get("orgn_ntby_pbmn") or
-                               d.get("ivtr_ntby_tr_pbmn") or "0"))
-            indv = _eok_str(_s(d.get("prsn_ntby_tr_pbmn") or d.get("indv_ntby_tr_pbmn") or
-                               d.get("prsn_ntby_pbmn") or "0"))
+            # 장중에는 ntby_tr_pbmn이 0 → shnu(매수) - seln(매도) 으로 계산
+            if frgn == 0.0 and orgn == 0.0:
+                try:
+                    frgn = _eok_str(_s(d.get("frgn_shnu_tr_pbmn", "0"))) - \
+                           _eok_str(_s(d.get("frgn_seln_tr_pbmn", "0")))
+                    orgn = _eok_str(_s(d.get("orgn_shnu_tr_pbmn", "0"))) - \
+                           _eok_str(_s(d.get("orgn_seln_tr_pbmn", "0")))
+                    indv = _eok_str(_s(d.get("prsn_shnu_tr_pbmn", "0"))) - \
+                           _eok_str(_s(d.get("prsn_seln_tr_pbmn", "0")))
+                except Exception:
+                    pass
 
-            # tr_pbmn이 모두 0이면 qty × 종가로 추정
+            # 여전히 0이면 qty × 종가 추정
             if frgn == 0.0 and orgn == 0.0:
                 try:
                     price = float(_s(d.get("stck_clpr", "0")))
@@ -843,8 +857,9 @@ def get_kis_stock_investor(ticker: str) -> Dict:
                     return float(str(v).replace(",", "").strip()) != 0.0
                 except Exception:
                     return False
-            fields = ("frgn_ntby_tr_pbmn", "orgn_ntby_tr_pbmn", "prsn_ntby_tr_pbmn",
-                      "frgn_ntby_qty", "orgn_ntby_qty", "prsn_ntby_qty")
+            fields = ("frgn_ntby_tr_pbmn", "orgn_ntby_tr_pbmn",
+                      "frgn_shnu_tr_pbmn", "orgn_shnu_tr_pbmn",
+                      "frgn_ntby_qty", "orgn_ntby_qty")
             return any(_nz(d.get(f)) for f in fields)
 
         # ── output1 (단일 dict, 당일 현황) 우선 시도 ─────────────────
