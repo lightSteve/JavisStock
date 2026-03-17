@@ -515,7 +515,16 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                     inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
                     frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
                     frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
-                    supply_date_str = "오늘"
+                    # 반환된 날짜로 라벨 설정 (오늘 데이터 없으면 전일 날짜)
+                    import datetime as _dt
+                    _today = _dt.date.today().strftime("%Y%m%d")
+                    _kis_date = kis.get("date", "")
+                    if _kis_date == _today:
+                        supply_date_str = "오늘"
+                    elif _kis_date and len(_kis_date) == 8:
+                        supply_date_str = f"{_kis_date[4:6]}/{_kis_date[6:8]}"
+                    else:
+                        supply_date_str = "KIS"
                     kis_live = True
             except Exception:
                 pass

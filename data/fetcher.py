@@ -785,10 +785,11 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             return {}
 
         def _eok_str(s) -> float:
-            """'+1,234,567,890' 또는 '-...' → 억원 float. 부호 보존."""
+            """FHKST01010900 수급 대금 필드 → 억원 float.
+            단위: 백만원(million KRW) → 억원으로 변환하려면 / 100."""
             v = str(s).replace(",", "").replace("+", "").strip()
             try:
-                return float(v) / 1e8
+                return float(v) / 100  # 백만원 단위 → 억원
             except ValueError:
                 return 0.0
 
@@ -911,7 +912,8 @@ def get_kis_stock_investor(ticker: str) -> Dict:
                 diag["used_date"] = target_date
                 diag["parsed"] = f"frgn={frgn:.2f} orgn={orgn:.2f} indv={indv:.2f}"
                 _cache["_kis_inv_last_diag"] = str(diag)
-                result = {"외국인": frgn, "기관": orgn, "개인": indv, "_ts": now}
+                result = {"외국인": frgn, "기관": orgn, "개인": indv,
+                          "date": target_date, "_ts": now}
                 _cache[cache_key] = result
                 _cache.pop("_kis_inv_last_err", None)
                 return {k: v for k, v in result.items() if not k.startswith("_")}
