@@ -791,33 +791,51 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             except ValueError:
                 return 0.0
 
-        # FHKST01010900: output1(당일 dict) + output2(30일 리스트) 구조
-        # output 키가 없거나 빈 경우 output1 시도
+        # FHKST01010900: output = 30일치 리스트 (날짜 오름/내림 모두 가능)
         raw_output = data.get("output")
         raw_output1 = data.get("output1")
         raw_output2 = data.get("output2")
 
-        # 진단: 실제 응답 구조를 캐시에 기록
+        # 진단: 실제 응답 구조를 캐시에 기록 (키 전체 표시)
         diag = {}
         if isinstance(raw_output, dict):
-            diag["output_keys"] = list(raw_output.keys())[:10]
+            diag["output_keys"] = list(raw_output.keys())
         elif isinstance(raw_output, list) and raw_output:
-            diag["output_keys"] = f"list[{len(raw_output)}] row0={list(raw_output[0].keys())[:8]}"
+            diag["output_keys"] = f"list[{len(raw_output)}] row0={list(raw_output[0].keys())}"
         if isinstance(raw_output1, dict):
-            diag["output1_keys"] = list(raw_output1.keys())[:10]
+            diag["output1_keys"] = list(raw_output1.keys())
         elif isinstance(raw_output1, list) and raw_output1:
-            diag["output1_keys"] = f"list[{len(raw_output1)}] row0={list(raw_output1[0].keys())[:8]}"
+            diag["output1_keys"] = f"list[{len(raw_output1)}] row0={list(raw_output1[0].keys())}"
         _cache["_kis_inv_last_diag"] = str(diag)
 
-        def _try_parse_dict(d: dict):
-            """dict에서 외국인/기관/개인 수급 추출. 여러 필드명 후보 시도."""
-            frgn = (d.get("frgn_ntby_tr_pbmn") or d.get("frgn_ntby_pbmn") or
-                    d.get("frgn_netbuy_tr_pbmn") or "0")
-            orgn = (d.get("orgn_ntby_tr_pbmn") or d.get("orgn_ntby_pbmn") or
-                    d.get("ivtr_ntby_tr_pbmn") or "0")
-            indv = (d.get("prsn_ntby_tr_pbmn") or d.get("indv_ntby_tr_pbmn") or
-                    d.get("prsn_ntby_pbmn") or "0")
-            return _eok_str(frgn), _eok_str(orgn), _eok_str(indv)
+        def _try_parse_dict(d: dict) -> tuple:
+            """dict에서 외국인/기관/개인 순매수 거래대금 추출.
+            tr_pbmn 필드가 없거나 모두 0이면 qty × 종가로 추정."""
+            frgn_pbmn = (d.get("frgn_ntby_tr_pbmn") or d.get("frgn_ntby_pbmn") or
+                         d.get("frgn_netbuy_tr_pbmn") or "0")
+            orgn_pbmn = (d.get("orgn_ntby_tr_pbmn") or d.get("orgn_ntby_pbmn") or
+                         d.get("ivtr_ntby_tr_pbmn") or "0")
+            indv_pbmn = (d.get("prsn_ntby_tr_pbmn") or d.get("indv_ntby_tr_pbmn") or
+                         d.get("prsn_ntby_pbmn") or "0")
+            frgn = _eok_str(frgn_pbmn)
+            orgn = _eok_str(orgn_pbmn)
+            indv = _eok_str(indv_pbmn)
+
+            # tr_pbmn이 모두 0일 때 qty × 종가로 추정 (수량 필드 fallback)
+            if frgn == 0.0 and orgn == 0.0:
+                try:
+                    price = float(str(d.get("stck_clpr", "0")).replace(",", ""))
+                    if price > 0:
+                        fq = float(str(d.get("frgn_ntby_qty", "0")).replace(",", ""))
+                        oq = float(str(d.get("orgn_ntby_qty", "0")).replace(",", ""))
+                        pq = float(str(d.get("prsn_ntby_qty", "0")).replace(",", ""))
+                        if fq != 0.0 or oq != 0.0:
+                            frgn = fq * price / 1e8
+                            orgn = oq * price / 1e8
+                            indv = pq * price / 1e8
+                except Exception:
+                    pass
+            return frgn, orgn, indv
 
         # ── output1 (단일 dict, 당일 현황) 우선 시도 ─────────────────
         if isinstance(raw_output1, dict) and raw_output1:
@@ -833,27 +851,43 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             _cache[cache_key] = result
             return {k: v for k, v in result.items() if not k.startswith("_")}
 
-        # ── output / output1 리스트 첫 행 ────────────────────────────
+        # ── 리스트: 가장 최근 날짜 행 선택 후 파싱 ──────────────────
         for candidate in [raw_output, raw_output1, raw_output2]:
-            if isinstance(candidate, list) and candidate:
-                first = candidate[0]
-                if not isinstance(first, dict):
-                    continue
-                frgn, orgn, indv = _try_parse_dict(first)
-                if frgn != 0.0 or orgn != 0.0 or indv != 0.0:
-                    result = {"외국인": frgn, "기관": orgn, "개인": indv, "_ts": now}
-                    _cache[cache_key] = result
-                    return {k: v for k, v in result.items() if not k.startswith("_")}
-                # 유형별 행 리스트: 0=개인 1=외국인 2=기관합계
-                if len(candidate) >= 3 and "ntby_tr_pbmn" in first:
-                    result = {
-                        "개인": _eok_str(candidate[0].get("ntby_tr_pbmn", "0")),
-                        "외국인": _eok_str(candidate[1].get("ntby_tr_pbmn", "0")),
-                        "기관": _eok_str(candidate[2].get("ntby_tr_pbmn", "0")),
-                        "_ts": now,
-                    }
-                    _cache[cache_key] = result
-                    return {k: v for k, v in result.items() if not k.startswith("_")}
+            if not isinstance(candidate, list) or not candidate:
+                continue
+            rows = [r for r in candidate if isinstance(r, dict)]
+            if not rows:
+                continue
+
+            # stck_bsop_date 기준 DESC 정렬 → 최근 날짜가 rows[0]
+            if any(r.get("stck_bsop_date") for r in rows):
+                rows = sorted(rows, key=lambda r: r.get("stck_bsop_date", ""), reverse=True)
+            target = rows[0]
+
+            # 통합 행(모든 투자자 한 행) 구조 확인
+            has_combined = any(
+                target.get(k) is not None
+                for k in ("frgn_ntby_tr_pbmn", "orgn_ntby_tr_pbmn",
+                          "frgn_ntby_qty", "orgn_ntby_qty")
+            )
+            if has_combined:
+                frgn, orgn, indv = _try_parse_dict(target)
+                result = {"외국인": frgn, "기관": orgn, "개인": indv, "_ts": now}
+                _cache[cache_key] = result
+                _cache.pop("_kis_inv_last_err", None)
+                return {k: v for k, v in result.items() if not k.startswith("_")}
+
+            # 유형별 행 리스트: row[0]=개인 row[1]=외국인 row[2]=기관합계
+            if len(rows) >= 3 and "ntby_tr_pbmn" in rows[0]:
+                result = {
+                    "개인": _eok_str(rows[0].get("ntby_tr_pbmn", "0")),
+                    "외국인": _eok_str(rows[1].get("ntby_tr_pbmn", "0")),
+                    "기관": _eok_str(rows[2].get("ntby_tr_pbmn", "0")),
+                    "_ts": now,
+                }
+                _cache[cache_key] = result
+                _cache.pop("_kis_inv_last_err", None)
+                return {k: v for k, v in result.items() if not k.startswith("_")}
 
         _cache["_kis_inv_last_err"] = f"파싱 실패 diag={diag}"
         return {}
