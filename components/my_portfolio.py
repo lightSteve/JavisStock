@@ -27,6 +27,8 @@ from data.fetcher import (
     get_kis_access_token,
     get_kis_realtime_price,
     clear_kis_investor_cache,
+    get_kis_intraday_supply,
+    clear_kis_intraday_cache,
     get_kis_investor_last_error,
     get_kis_investor_last_diag,
     save_kis_credentials,
@@ -156,6 +158,7 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
         for h in holdings:
             clear_integration_cache(h["ticker"])
             clear_kis_investor_cache(h["ticker"])
+            clear_kis_intraday_cache(h["ticker"])
         clear_market_investor_cache()
         st.rerun()
 
@@ -503,31 +506,55 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         except Exception:
             pass
 
-        # KIS 장중 실시간 수급 (설정된 경우 당일 값으로 덮어씀)
+        # KIS 수급: 장중 가집계(FHPTJ04400000) 우선 → 없으면 FHKST01010900(전일 확정)
         kis_live = False
         if is_kis_configured():
+            # 1순위: 장중 가집계 (09:30/10:00/11:20/13:20/14:30 업데이트)
             try:
-                kis = get_kis_stock_investor(ticker)
-                if kis:
-                    inst_5d = kis.get("기관", 0.0)
-                    frgn_5d = kis.get("외국인", 0.0)
+                intraday = get_kis_intraday_supply(ticker)
+                if intraday:
+                    fq = intraday.get("외국인_qty", 0)
+                    oq = intraday.get("기관_qty", 0)
+                    bucket = intraday.get("bucket", "")
+                    # qty × 현재가 → 억원
+                    if cur_price > 0:
+                        frgn_5d = fq * cur_price / 1e8
+                        inst_5d = oq * cur_price / 1e8
+                    else:
+                        frgn_5d = 0.0
+                        inst_5d = 0.0
                     inst_buy_5d = inst_5d if inst_5d >= 0 else 0.0
                     inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
                     frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
                     frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
-                    # 반환된 날짜로 라벨 설정 (오늘 데이터 없으면 전일 날짜)
-                    import datetime as _dt
-                    _today = _dt.date.today().strftime("%Y%m%d")
-                    _kis_date = kis.get("date", "")
-                    if _kis_date == _today:
-                        supply_date_str = "오늘"
-                    elif _kis_date and len(_kis_date) == 8:
-                        supply_date_str = f"{_kis_date[4:6]}/{_kis_date[6:8]}"
-                    else:
-                        supply_date_str = "KIS"
+                    supply_date_str = f"가집계 {bucket}"
                     kis_live = True
             except Exception:
                 pass
+
+            # 2순위: FHKST01010900 (전일 확정 데이터)
+            if not kis_live:
+                try:
+                    kis = get_kis_stock_investor(ticker)
+                    if kis:
+                        inst_5d = kis.get("기관", 0.0)
+                        frgn_5d = kis.get("외국인", 0.0)
+                        inst_buy_5d = inst_5d if inst_5d >= 0 else 0.0
+                        inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
+                        frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
+                        frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
+                        import datetime as _dt
+                        _today = _dt.date.today().strftime("%Y%m%d")
+                        _kis_date = kis.get("date", "")
+                        if _kis_date == _today:
+                            supply_date_str = "오늘"
+                        elif _kis_date and len(_kis_date) == 8:
+                            supply_date_str = f"{_kis_date[4:6]}/{_kis_date[6:8]}"
+                        else:
+                            supply_date_str = "KIS"
+                        kis_live = True
+                except Exception:
+                    pass
 
         rows.append({
             "idx": i,

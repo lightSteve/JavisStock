@@ -956,6 +956,121 @@ def clear_kis_investor_cache(ticker: str = None):
             _cache.pop(k, None)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 장중 가집계 (FHPTJ04400000)
+# KRX 집계 업데이트 시각: 외국인 09:30/11:20/13:20/14:30, 기관 10:00/11:20/13:20/14:30
+# ─────────────────────────────────────────────────────────────────────
+
+_INTRADAY_BUCKETS = [
+    (9, 30,  "09:30"),
+    (10, 0,  "10:00"),
+    (11, 20, "11:20"),
+    (13, 20, "13:20"),
+    (14, 30, "14:30"),
+]
+
+
+def _market_intraday_bucket() -> str:
+    """현재 장중 가집계 버킷 레이블. 장 외/미갱신 시 빈 문자열 반환."""
+    import datetime
+    now = datetime.datetime.now()
+    if now.weekday() >= 5:  # 주말
+        return ""
+    cur = now.hour * 60 + now.minute
+    if cur < 9 * 60 + 30 or cur > 15 * 60 + 30:
+        return ""
+    bucket = ""
+    for h, m, lbl in _INTRADAY_BUCKETS:
+        if cur >= h * 60 + m:
+            bucket = lbl
+    return bucket
+
+
+def get_kis_intraday_supply(ticker: str) -> Dict:
+    """
+    FHPTJ04400000: 외국인/기관 매매종목 가집계 (장중 잠정치).
+    KRX 업데이트: 외국인 09:30/11:20/13:20/14:30, 기관 10:00/11:20/13:20/14:30.
+
+    반환: {"외국인_qty": int, "기관_qty": int, "bucket": "14:30"}
+          장 외/미갱신/오류 시 {} 반환
+    """
+    if not is_kis_configured():
+        return {}
+    bucket = _market_intraday_bucket()
+    if not bucket:
+        return {}
+
+    cache_key = f"kis_inday_{ticker}_{bucket.replace(':', '')}"
+    if cache_key in _cache:
+        return _cache[cache_key]
+
+    tok = get_kis_access_token()
+    if not tok:
+        return {}
+    app_key, app_secret = _get_kis_credentials()
+    try:
+        resp = requests.get(
+            f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/foreign-institution-total",
+            headers={
+                "content-type": "application/json; charset=utf-8",
+                "Authorization": f"Bearer {tok}",
+                "appkey": app_key,
+                "appsecret": app_secret,
+                "tr_id": "FHPTJ04400000",
+                "custtype": "P",
+            },
+            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("rt_cd") != "0":
+            return {}
+
+        raw = data.get("output") or data.get("output1") or []
+
+        def _i(v) -> int:
+            try:
+                return int(str(v).replace(",", "").strip())
+            except Exception:
+                return 0
+
+        target = None
+        if isinstance(raw, list):
+            for row in raw:
+                if not isinstance(row, dict):
+                    continue
+                iscd = row.get("stck_shrn_iscd", "")
+                if iscd == ticker or iscd.lstrip("0") == ticker.lstrip("0"):
+                    target = row
+                    break
+            if target is None and raw and isinstance(raw[0], dict):
+                target = raw[0]  # fallback: 첫 행
+        elif isinstance(raw, dict):
+            target = raw
+
+        if not target:
+            return {}
+
+        result = {
+            "외국인_qty": _i(target.get("frgn_ntby_qty", "0")),
+            "기관_qty":   _i(target.get("orgn_ntby_qty", "0")),
+            "bucket":     bucket,
+        }
+        _cache[cache_key] = result
+        return result
+    except Exception:
+        return {}
+
+
+def clear_kis_intraday_cache(ticker: str = None):
+    """장중 가집계 캐시 초기화."""
+    prefix = "kis_inday_"
+    keys = [k for k in list(_cache) if k.startswith(prefix if not ticker else f"{prefix}{ticker}_")]
+    for k in keys:
+        _cache.pop(k, None)
+
+
 def get_kis_realtime_price(ticker: str) -> dict:
     """
     KIS TR FHKST01010100: 주식현재가 시세
