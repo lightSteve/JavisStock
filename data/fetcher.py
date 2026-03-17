@@ -810,25 +810,24 @@ def get_kis_stock_investor(ticker: str) -> Dict:
 
         def _try_parse_dict(d: dict) -> tuple:
             """dict에서 외국인/기관/개인 순매수 거래대금 추출.
-            tr_pbmn 필드가 없거나 모두 0이면 qty × 종가로 추정."""
-            frgn_pbmn = (d.get("frgn_ntby_tr_pbmn") or d.get("frgn_ntby_pbmn") or
-                         d.get("frgn_netbuy_tr_pbmn") or "0")
-            orgn_pbmn = (d.get("orgn_ntby_tr_pbmn") or d.get("orgn_ntby_pbmn") or
-                         d.get("ivtr_ntby_tr_pbmn") or "0")
-            indv_pbmn = (d.get("prsn_ntby_tr_pbmn") or d.get("indv_ntby_tr_pbmn") or
-                         d.get("prsn_ntby_pbmn") or "0")
-            frgn = _eok_str(frgn_pbmn)
-            orgn = _eok_str(orgn_pbmn)
-            indv = _eok_str(indv_pbmn)
+            tr_pbmn이 모두 0이면 qty × stck_clpr 로 금액 추정."""
+            def _s(v) -> str:
+                return str(v).replace(",", "").strip() if v is not None else "0"
 
-            # tr_pbmn이 모두 0일 때 qty × 종가로 추정 (수량 필드 fallback)
+            frgn = _eok_str(_s(d.get("frgn_ntby_tr_pbmn") or d.get("frgn_ntby_pbmn") or "0"))
+            orgn = _eok_str(_s(d.get("orgn_ntby_tr_pbmn") or d.get("orgn_ntby_pbmn") or
+                               d.get("ivtr_ntby_tr_pbmn") or "0"))
+            indv = _eok_str(_s(d.get("prsn_ntby_tr_pbmn") or d.get("indv_ntby_tr_pbmn") or
+                               d.get("prsn_ntby_pbmn") or "0"))
+
+            # tr_pbmn이 모두 0이면 qty × 종가로 추정
             if frgn == 0.0 and orgn == 0.0:
                 try:
-                    price = float(str(d.get("stck_clpr", "0")).replace(",", ""))
+                    price = float(_s(d.get("stck_clpr", "0")))
                     if price > 0:
-                        fq = float(str(d.get("frgn_ntby_qty", "0")).replace(",", ""))
-                        oq = float(str(d.get("orgn_ntby_qty", "0")).replace(",", ""))
-                        pq = float(str(d.get("prsn_ntby_qty", "0")).replace(",", ""))
+                        fq = float(_s(d.get("frgn_ntby_qty", "0")))
+                        oq = float(_s(d.get("orgn_ntby_qty", "0")))
+                        pq = float(_s(d.get("prsn_ntby_qty", "0")))
                         if fq != 0.0 or oq != 0.0:
                             frgn = fq * price / 1e8
                             orgn = oq * price / 1e8
@@ -836,6 +835,17 @@ def get_kis_stock_investor(ticker: str) -> Dict:
                 except Exception:
                     pass
             return frgn, orgn, indv
+
+        def _row_has_data(d: dict) -> bool:
+            """행에 유효한 수급 데이터가 있는지 확인 (모두 0/빈값이면 False)."""
+            def _nz(v) -> bool:
+                try:
+                    return float(str(v).replace(",", "").strip()) != 0.0
+                except Exception:
+                    return False
+            fields = ("frgn_ntby_tr_pbmn", "orgn_ntby_tr_pbmn", "prsn_ntby_tr_pbmn",
+                      "frgn_ntby_qty", "orgn_ntby_qty", "prsn_ntby_qty")
+            return any(_nz(d.get(f)) for f in fields)
 
         # ── output1 (단일 dict, 당일 현황) 우선 시도 ─────────────────
         if isinstance(raw_output1, dict) and raw_output1:
@@ -851,7 +861,7 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             _cache[cache_key] = result
             return {k: v for k, v in result.items() if not k.startswith("_")}
 
-        # ── 리스트: 가장 최근 날짜 행 선택 후 파싱 ──────────────────
+        # ── 리스트: 최근 날짜부터 순서대로 시도, 유효 데이터 있는 행 선택 ──
         for candidate in [raw_output, raw_output1, raw_output2]:
             if not isinstance(candidate, list) or not candidate:
                 continue
@@ -862,16 +872,29 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             # stck_bsop_date 기준 DESC 정렬 → 최근 날짜가 rows[0]
             if any(r.get("stck_bsop_date") for r in rows):
                 rows = sorted(rows, key=lambda r: r.get("stck_bsop_date", ""), reverse=True)
-            target = rows[0]
 
-            # 통합 행(모든 투자자 한 행) 구조 확인
+            # 통합 행(1행=1일, 모든 투자자 포함) 구조인지 확인
             has_combined = any(
-                target.get(k) is not None
+                rows[0].get(k) is not None
                 for k in ("frgn_ntby_tr_pbmn", "orgn_ntby_tr_pbmn",
                           "frgn_ntby_qty", "orgn_ntby_qty")
             )
             if has_combined:
+                # 최신 날짜부터 유효 데이터가 있는 행 선택 (오늘 row가 0이면 전일로 폴백)
+                target = None
+                target_date = ""
+                for row in rows:
+                    if _row_has_data(row):
+                        target = row
+                        target_date = row.get("stck_bsop_date", "")
+                        break
+                if target is None:
+                    target = rows[0]  # 모두 0이면 최신 행 사용
                 frgn, orgn, indv = _try_parse_dict(target)
+                # 진단에 실제 사용된 날짜와 값 기록
+                diag["used_date"] = target_date
+                diag["parsed"] = f"frgn={frgn:.2f} orgn={orgn:.2f} indv={indv:.2f}"
+                _cache["_kis_inv_last_diag"] = str(diag)
                 result = {"외국인": frgn, "기관": orgn, "개인": indv, "_ts": now}
                 _cache[cache_key] = result
                 _cache.pop("_kis_inv_last_err", None)
