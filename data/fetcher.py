@@ -741,7 +741,7 @@ def get_kis_access_token() -> str:
 
 def get_kis_stock_investor(ticker: str) -> Dict:
     """
-    KIS TR FHKST02010100: 주식현재가 투자자
+    KIS TR FHKST01010900: 주식현재가 투자자
     당일 기관/외국인/개인 순매수 거래대금 (장중 실시간, 1분 캐시).
 
     반환: {"외국인": -1.07, "기관": -4.51, "개인": 5.58}  (단위: 억원)
@@ -791,56 +791,71 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             except ValueError:
                 return 0.0
 
-        output = data.get("output") or data.get("output1")
-        if not output:
-            _cache["_kis_inv_last_err"] = f"output empty (keys={list(data.keys())})"
-            return {}
+        # FHKST01010900: output1(당일 dict) + output2(30일 리스트) 구조
+        # output 키가 없거나 빈 경우 output1 시도
+        raw_output = data.get("output")
+        raw_output1 = data.get("output1")
+        raw_output2 = data.get("output2")
 
-        # ── 포맷 A: 단일 dict ───────────────────────────────────────────
-        # FHKST01010900: frgn_ntby_tr_pbmn / orgn_ntby_tr_pbmn / prsn_ntby_tr_pbmn
-        # FHKST02010100: frgn_ntby_tr_pbmn / orgn_ntby_tr_pbmn / indv_ntby_tr_pbmn
-        if isinstance(output, dict):
-            # 개인 필드: prsn_(FHKST01010900) 우선, 없으면 indv_(FHKST02010100)
-            indv_val = output.get("prsn_ntby_tr_pbmn") or output.get("indv_ntby_tr_pbmn", "0")
-            result = {
-                "외국인": _eok_str(output.get("frgn_ntby_tr_pbmn", "0")),
-                "기관": _eok_str(output.get("orgn_ntby_tr_pbmn", "0")),
-                "개인": _eok_str(indv_val),
-                "_ts": now,
-            }
+        # 진단: 실제 응답 구조를 캐시에 기록
+        diag = {}
+        if isinstance(raw_output, dict):
+            diag["output_keys"] = list(raw_output.keys())[:10]
+        elif isinstance(raw_output, list) and raw_output:
+            diag["output_keys"] = f"list[{len(raw_output)}] row0={list(raw_output[0].keys())[:8]}"
+        if isinstance(raw_output1, dict):
+            diag["output1_keys"] = list(raw_output1.keys())[:10]
+        elif isinstance(raw_output1, list) and raw_output1:
+            diag["output1_keys"] = f"list[{len(raw_output1)}] row0={list(raw_output1[0].keys())[:8]}"
+        _cache["_kis_inv_last_diag"] = str(diag)
+
+        def _try_parse_dict(d: dict):
+            """dict에서 외국인/기관/개인 수급 추출. 여러 필드명 후보 시도."""
+            frgn = (d.get("frgn_ntby_tr_pbmn") or d.get("frgn_ntby_pbmn") or
+                    d.get("frgn_netbuy_tr_pbmn") or "0")
+            orgn = (d.get("orgn_ntby_tr_pbmn") or d.get("orgn_ntby_pbmn") or
+                    d.get("ivtr_ntby_tr_pbmn") or "0")
+            indv = (d.get("prsn_ntby_tr_pbmn") or d.get("indv_ntby_tr_pbmn") or
+                    d.get("prsn_ntby_pbmn") or "0")
+            return _eok_str(frgn), _eok_str(orgn), _eok_str(indv)
+
+        # ── output1 (단일 dict, 당일 현황) 우선 시도 ─────────────────
+        if isinstance(raw_output1, dict) and raw_output1:
+            frgn, orgn, indv = _try_parse_dict(raw_output1)
+            result = {"외국인": frgn, "기관": orgn, "개인": indv, "_ts": now}
             _cache[cache_key] = result
             return {k: v for k, v in result.items() if not k.startswith("_")}
 
-        # ── 포맷 B: 리스트 ──────────────────────────────────────────────
-        if isinstance(output, list) and output:
-            first = output[0]
-            # B-1: 첫 행에 통합 필드가 있는 경우
-            if "frgn_ntby_tr_pbmn" in first:
-                indv_val = first.get("prsn_ntby_tr_pbmn") or first.get("indv_ntby_tr_pbmn", "0")
-                result = {
-                    "외국인": _eok_str(first.get("frgn_ntby_tr_pbmn", "0")),
-                    "기관": _eok_str(first.get("orgn_ntby_tr_pbmn", "0")),
-                    "개인": _eok_str(indv_val),
-                    "_ts": now,
-                }
-                _cache[cache_key] = result
-                return {k: v for k, v in result.items() if not k.startswith("_")}
-
-            # B-2: 투자자 유형별 행 리스트 (0=개인 1=외국인 2=기관합계)
-            def _row_val(rows, idx):
-                if idx < len(rows):
-                    return _eok_str(rows[idx].get("ntby_tr_pbmn", "0"))
-                return 0.0
-
-            result = {
-                "개인": _row_val(output, 0),
-                "외국인": _row_val(output, 1),
-                "기관": _row_val(output, 2),
-                "_ts": now,
-            }
+        # ── output (단일 dict) ────────────────────────────────────────
+        if isinstance(raw_output, dict) and raw_output:
+            frgn, orgn, indv = _try_parse_dict(raw_output)
+            result = {"외국인": frgn, "기관": orgn, "개인": indv, "_ts": now}
             _cache[cache_key] = result
             return {k: v for k, v in result.items() if not k.startswith("_")}
 
+        # ── output / output1 리스트 첫 행 ────────────────────────────
+        for candidate in [raw_output, raw_output1, raw_output2]:
+            if isinstance(candidate, list) and candidate:
+                first = candidate[0]
+                if not isinstance(first, dict):
+                    continue
+                frgn, orgn, indv = _try_parse_dict(first)
+                if frgn != 0.0 or orgn != 0.0 or indv != 0.0:
+                    result = {"외국인": frgn, "기관": orgn, "개인": indv, "_ts": now}
+                    _cache[cache_key] = result
+                    return {k: v for k, v in result.items() if not k.startswith("_")}
+                # 유형별 행 리스트: 0=개인 1=외국인 2=기관합계
+                if len(candidate) >= 3 and "ntby_tr_pbmn" in first:
+                    result = {
+                        "개인": _eok_str(candidate[0].get("ntby_tr_pbmn", "0")),
+                        "외국인": _eok_str(candidate[1].get("ntby_tr_pbmn", "0")),
+                        "기관": _eok_str(candidate[2].get("ntby_tr_pbmn", "0")),
+                        "_ts": now,
+                    }
+                    _cache[cache_key] = result
+                    return {k: v for k, v in result.items() if not k.startswith("_")}
+
+        _cache["_kis_inv_last_err"] = f"파싱 실패 diag={diag}"
         return {}
     except Exception as e:
         _cache["_kis_inv_last_err"] = str(e)[:120]
@@ -850,6 +865,11 @@ def get_kis_stock_investor(ticker: str) -> Dict:
 def get_kis_investor_last_error() -> str:
     """마지막 KIS 투자자 TR 에러 메시지 반환 (진단용)."""
     return _cache.get("_kis_inv_last_err", "")
+
+
+def get_kis_investor_last_diag() -> str:
+    """마지막 KIS 투자자 TR 응답 구조 진단 정보 반환."""
+    return _cache.get("_kis_inv_last_diag", "")
 
 
 def clear_kis_investor_cache(ticker: str = None):

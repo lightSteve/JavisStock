@@ -28,6 +28,7 @@ from data.fetcher import (
     get_kis_realtime_price,
     clear_kis_investor_cache,
     get_kis_investor_last_error,
+    get_kis_investor_last_diag,
     save_kis_credentials,
     delete_kis_credentials,
 )
@@ -207,11 +208,11 @@ def _render_kis_settings():
                                 "custtype": "P",
                                 "content-type": "application/json; charset=utf-8",
                             }
-                            # Test 1: 주식현재가 투자자 (FHKST02010100)
+                            # Test 1: 주식현재가 투자자 (FHKST01010900)
                             try:
                                 r = _req.get(
                                     f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor",
-                                    headers={**hdrs, "tr_id": "FHKST02010100"},
+                                    headers={**hdrs, "tr_id": "FHKST01010900"},
                                     params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "005930"},
                                     timeout=10,
                                 )
@@ -219,21 +220,27 @@ def _render_kis_settings():
                                 rt_cd = data.get("rt_cd", "?")
                                 msg = data.get("msg1", "")
                                 if rt_cd == "0":
-                                    output = data.get("output", {})
-                                    if isinstance(output, list):
-                                        output = output[0] if output else {}
-                                    frgn = output.get("frgn_ntby_tr_pbmn", "N/A")
-                                    orgn = output.get("orgn_ntby_tr_pbmn", "N/A")
-                                    indv = output.get("indv_ntby_tr_pbmn", "N/A")
-                                    st.success(
-                                        f"✅ 투자자 수급 성공 (삼성전자)\n"
-                                        f"외국인: {frgn}원 | 기관: {orgn}원 | 개인: {indv}원"
-                                    )
+                                    # 전체 응답 구조 덤프
+                                    top_keys = list(data.keys())
+                                    st.success(f"✅ FHKST01010900 응답 성공 | 최상위 키: {top_keys}")
+                                    for key in ["output", "output1", "output2"]:
+                                        raw = data.get(key)
+                                        if raw is None:
+                                            st.caption(f"  [{key}]: 없음")
+                                        elif isinstance(raw, list):
+                                            st.caption(f"  [{key}]: 리스트 {len(raw)}행")
+                                            if raw and isinstance(raw[0], dict):
+                                                st.code(f"행[0] 키: {list(raw[0].keys())}\n행[0] 값: { {k: raw[0][k] for k in list(raw[0].keys())[:6]} }")
+                                        elif isinstance(raw, dict):
+                                            st.caption(f"  [{key}]: dict")
+                                            st.code(f"키: {list(raw.keys())}\n값(일부): { {k: raw[k] for k in list(raw.keys())[:8]} }")
+                                        else:
+                                            st.caption(f"  [{key}]: {type(raw).__name__} = {raw}")
                                 else:
-                                    st.error(f"❌ [FHKST02010100] rt_cd={rt_cd}: {msg}")
+                                    st.error(f"❌ [FHKST01010900] rt_cd={rt_cd}: {msg}")
                                     st.code(str(data)[:400])
                             except Exception as e:
-                                st.error(f"❌ [FHKST02010100] 요청 실패: {e}")
+                                st.error(f"❌ [FHKST01010900] 요청 실패: {e}")
                             # Test 2: 주식현재가 시세 (FHKST01010100) — 기본시세 확인용
                             try:
                                 r2 = _req.get(
@@ -543,8 +550,19 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         # KIS 연결 상태 배지
         if is_kis_configured():
             any_kis_live = any(r.get("수급실시간") for r in rows)
-            if any_kis_live:
+            # 실시간 rows 중 모든 값이 0.0인 경우 감지 (파싱 실패 가능성)
+            live_rows = [r for r in rows if r.get("수급실시간")]
+            all_vals_zero = live_rows and all(
+                r.get("기관최근", 0) == 0 and r.get("외국인최근", 0) == 0
+                for r in live_rows
+            )
+            if any_kis_live and not all_vals_zero:
                 st.caption("🔴 KIS API 연결됨 · 기관/외국인 수급 장중 실시간 갱신 (1분 주기)")
+            elif any_kis_live and all_vals_zero:
+                diag = get_kis_investor_last_diag()
+                st.caption("🔴 KIS API 연결됨 · ⚠️ 수급 값이 0 — 응답 구조 확인 필요")
+                if diag:
+                    st.caption(f"🔍 응답 키: {diag}")
             else:
                 err = get_kis_investor_last_error()
                 if err:
