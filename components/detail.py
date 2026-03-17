@@ -12,7 +12,7 @@ import streamlit as st
 
 from data.fetcher import (
     get_stock_name, get_stock_ohlcv_history, get_investor_trend_individual,
-    get_kis_stock_investor, is_kis_configured,
+    get_kis_stock_investor, get_kis_intraday_supply, is_kis_configured,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -181,40 +181,76 @@ def _render_summary_cards(ohlcv: pd.DataFrame, supply: pd.DataFrame):
 
 
 def _render_kis_realtime_investor(ticker: str):
-    """KIS 장중 실시간 수급 표시 (설정된 경우에만)."""
+    """KIS 수급 표시: 장중 가집계(FHPTJ04400000) 우선 → 전일 확정(FHKST01010900) 폴백."""
     if not is_kis_configured():
         return
 
-    with st.spinner("장중 수급 조회 중..."):
-        kis = get_kis_stock_investor(ticker)
-
     st.markdown("---")
-    st.markdown("### 📡 오늘 장중 수급 (KIS 실시간)")
+    st.markdown("### 📡 수급 (KIS)")
 
-    if not kis:
-        st.caption("장중 수급 데이터를 가져올 수 없습니다. (장 마감 후이거나 API 오류)")
-        return
+    inst_v = frgn_v = indv_v = 0.0
+    label = ""
 
+    # 1순위: 장중 가집계
+    try:
+        intraday = get_kis_intraday_supply(ticker)
+        if intraday:
+            # qty 만 있으므로 현재가로 환산
+            last_price = 0
+            try:
+                from data.fetcher import get_kis_realtime_price
+                last_price = get_kis_realtime_price(ticker) or 0
+            except Exception:
+                pass
+            fq = intraday.get("외국인_qty", 0)
+            oq = intraday.get("기관_qty", 0)
+            bucket = intraday.get("bucket", "")
+            if last_price > 0:
+                frgn_v = fq * last_price / 1e8
+                inst_v = oq * last_price / 1e8
+            label = f"가집계 {bucket}"
+    except Exception:
+        pass
+
+    # 2순위: 전일 확정 대금
+    if not label:
+        with st.spinner("수급 조회 중..."):
+            try:
+                kis = get_kis_stock_investor(ticker)
+            except Exception:
+                kis = None
+        if not kis:
+            st.caption("수급 데이터를 가져올 수 없습니다. (장 마감 후이거나 API 오류)")
+            return
+        inst_v = kis.get("기관", 0.0)
+        frgn_v = kis.get("외국인", 0.0)
+        indv_v = kis.get("개인", 0.0)
+        import datetime as _dt
+        _today = _dt.date.today().strftime("%Y%m%d")
+        _kis_date = kis.get("date", "")
+        if _kis_date == _today:
+            label = "오늘"
+        elif _kis_date and len(_kis_date) == 8:
+            label = f"{_kis_date[4:6]}/{_kis_date[6:8]}"
+        else:
+            label = "KIS"
+
+    st.caption(f"기준: {label}")
     kc1, kc2, kc3 = st.columns(3)
-    inst_v = kis.get("기관", 0.0)
-    frgn_v = kis.get("외국인", 0.0)
-    indv_v = kis.get("개인", 0.0)
-
     with kc1:
-        delta_color = "normal" if inst_v >= 0 else "inverse"
-        st.metric("🏛️ 기관 순매수", f"{inst_v:+.2f}억", delta=f"{inst_v:+.2f}억", delta_color=delta_color)
+        st.metric("🏛️ 기관 순매수", f"{inst_v:+.2f}억", delta=f"{inst_v:+.2f}억",
+                  delta_color="normal" if inst_v >= 0 else "inverse")
     with kc2:
-        delta_color = "normal" if frgn_v >= 0 else "inverse"
-        st.metric("🌍 외국인 순매수", f"{frgn_v:+.2f}억", delta=f"{frgn_v:+.2f}억", delta_color=delta_color)
+        st.metric("🌍 외국인 순매수", f"{frgn_v:+.2f}억", delta=f"{frgn_v:+.2f}억",
+                  delta_color="normal" if frgn_v >= 0 else "inverse")
     with kc3:
-        delta_color = "normal" if indv_v >= 0 else "inverse"
-        st.metric("👤 개인 순매수", f"{indv_v:+.2f}억", delta=f"{indv_v:+.2f}억", delta_color=delta_color)
+        st.metric("👤 개인 순매수", f"{indv_v:+.2f}억", delta=f"{indv_v:+.2f}억",
+                  delta_color="normal" if indv_v >= 0 else "inverse")
 
-    # 스마트머니 합산 신호
     smart = inst_v + frgn_v
-    if smart > 0:
+    if smart > 1e-2:
         signal = f"🔴 스마트머니 순매수 {smart:+.2f}억 (기관+외국인)"
-    elif smart < 0:
+    elif smart < -1e-2:
         signal = f"🔵 스마트머니 순매도 {smart:+.2f}억 (기관+외국인)"
     else:
         signal = "⚪ 스마트머니 중립"
