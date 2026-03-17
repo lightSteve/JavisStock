@@ -761,6 +761,7 @@ def get_kis_stock_investor(ticker: str) -> Dict:
 
     tok = get_kis_access_token()
     if not tok:
+        _cache["_kis_inv_last_err"] = "토큰 발급 실패 (key/secret 확인 필요)"
         return {}
     app_key, app_secret = _get_kis_credentials()
     try:
@@ -779,6 +780,7 @@ def get_kis_stock_investor(ticker: str) -> Dict:
         resp.raise_for_status()
         data = resp.json()
         if data.get("rt_cd") != "0":
+            _cache["_kis_inv_last_err"] = f"rt_cd={data.get('rt_cd')} msg={data.get('msg1', '')}"
             return {}
 
         def _eok_str(s) -> float:
@@ -791,6 +793,7 @@ def get_kis_stock_investor(ticker: str) -> Dict:
 
         output = data.get("output") or data.get("output1")
         if not output:
+            _cache["_kis_inv_last_err"] = f"output empty (keys={list(data.keys())})"
             return {}
 
         # ── 포맷 A: 단일 dict (frgn_ntby_tr_pbmn 키 보유) ──────────────
@@ -835,8 +838,14 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             return {k: v for k, v in result.items() if not k.startswith("_")}
 
         return {}
-    except Exception:
+    except Exception as e:
+        _cache["_kis_inv_last_err"] = str(e)[:120]
         return {}
+
+
+def get_kis_investor_last_error() -> str:
+    """마지막 KIS 투자자 TR 에러 메시지 반환 (진단용)."""
+    return _cache.get("_kis_inv_last_err", "")
 
 
 def clear_kis_investor_cache(ticker: str = None):

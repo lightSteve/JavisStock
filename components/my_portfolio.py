@@ -27,6 +27,7 @@ from data.fetcher import (
     get_kis_access_token,
     get_kis_realtime_price,
     clear_kis_investor_cache,
+    get_kis_investor_last_error,
     save_kis_credentials,
     delete_kis_credentials,
 )
@@ -541,7 +542,15 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         st.markdown("### 📋 보유종목 현황")
         # KIS 연결 상태 배지
         if is_kis_configured():
-            st.caption("🔴 KIS API 연결됨 · 기관/외국인 수급 장중 실시간 갱신 (1분 주기)")
+            any_kis_live = any(r.get("수급실시간") for r in rows)
+            if any_kis_live:
+                st.caption("🔴 KIS API 연결됨 · 기관/외국인 수급 장중 실시간 갱신 (1분 주기)")
+            else:
+                err = get_kis_investor_last_error()
+                if err:
+                    st.caption(f"🔴 KIS API 연결됨 · ⚠️ 수급 TR 오류: {err}")
+                else:
+                    st.caption("🔴 KIS API 연결됨 · 수급 조회 중 (장 시작 전이거나 조회 대기)")
         else:
             st.caption(
                 "💡 KIS API 미연결 · 수급은 전 거래일 확정 기준 | "
