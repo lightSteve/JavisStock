@@ -771,7 +771,7 @@ def get_kis_stock_investor(ticker: str) -> Dict:
                 "Authorization": f"Bearer {tok}",
                 "appkey": app_key,
                 "appsecret": app_secret,
-                "tr_id": "FHKST02010100",
+                "tr_id": "FHKST01010900",
                 "custtype": "P",
             },
             params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker},
@@ -796,12 +796,16 @@ def get_kis_stock_investor(ticker: str) -> Dict:
             _cache["_kis_inv_last_err"] = f"output empty (keys={list(data.keys())})"
             return {}
 
-        # ── 포맷 A: 단일 dict (frgn_ntby_tr_pbmn 키 보유) ──────────────
+        # ── 포맷 A: 단일 dict ───────────────────────────────────────────
+        # FHKST01010900: frgn_ntby_tr_pbmn / orgn_ntby_tr_pbmn / prsn_ntby_tr_pbmn
+        # FHKST02010100: frgn_ntby_tr_pbmn / orgn_ntby_tr_pbmn / indv_ntby_tr_pbmn
         if isinstance(output, dict):
+            # 개인 필드: prsn_(FHKST01010900) 우선, 없으면 indv_(FHKST02010100)
+            indv_val = output.get("prsn_ntby_tr_pbmn") or output.get("indv_ntby_tr_pbmn", "0")
             result = {
                 "외국인": _eok_str(output.get("frgn_ntby_tr_pbmn", "0")),
                 "기관": _eok_str(output.get("orgn_ntby_tr_pbmn", "0")),
-                "개인": _eok_str(output.get("indv_ntby_tr_pbmn", "0")),
+                "개인": _eok_str(indv_val),
                 "_ts": now,
             }
             _cache[cache_key] = result
@@ -810,19 +814,19 @@ def get_kis_stock_investor(ticker: str) -> Dict:
         # ── 포맷 B: 리스트 ──────────────────────────────────────────────
         if isinstance(output, list) and output:
             first = output[0]
-            # B-1: 리스트 첫 행에 frgn_/orgn_/indv_ 통합 필드가 있는 경우
+            # B-1: 첫 행에 통합 필드가 있는 경우
             if "frgn_ntby_tr_pbmn" in first:
+                indv_val = first.get("prsn_ntby_tr_pbmn") or first.get("indv_ntby_tr_pbmn", "0")
                 result = {
                     "외국인": _eok_str(first.get("frgn_ntby_tr_pbmn", "0")),
                     "기관": _eok_str(first.get("orgn_ntby_tr_pbmn", "0")),
-                    "개인": _eok_str(first.get("indv_ntby_tr_pbmn", "0")),
+                    "개인": _eok_str(indv_val),
                     "_ts": now,
                 }
                 _cache[cache_key] = result
                 return {k: v for k, v in result.items() if not k.startswith("_")}
 
             # B-2: 투자자 유형별 행 리스트 (0=개인 1=외국인 2=기관합계)
-            # ntby_tr_pbmn 필드에 순매수 거래대금(원)
             def _row_val(rows, idx):
                 if idx < len(rows):
                     return _eok_str(rows[idx].get("ntby_tr_pbmn", "0"))

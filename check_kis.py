@@ -26,15 +26,15 @@ if not token:
     sys.exit(1)
 print(f"\n토큰 발급 성공: {token[:30]}...")
 
-# 2. 주식현재가 투자자 조회 (FHKST02010100)
-print("\n=== 2. 주식현재가 투자자 (FHKST02010100) ===")
+# 2. 주식현재가 투자자 조회 (FHKST01010900)
+print("\n=== 2. 주식현재가 투자자 (FHKST01010900) ===")
 resp2 = requests.get(
     f"{BASE}/uapi/domestic-stock/v1/quotations/inquire-investor",
     headers={
         "Authorization": f"Bearer {token}",
         "appkey": APP_KEY,
         "appsecret": APP_SECRET,
-        "tr_id": "FHKST02010100",
+        "tr_id": "FHKST01010900",
         "custtype": "P",
     },
     params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": TICKER},
@@ -78,11 +78,13 @@ if output:
         try: return float(v) / 1e8
         except: return 0.0
     if isinstance(output, dict):
-        print(f"  포맷A(단일dict): 외국인={_parse(output.get('frgn_ntby_tr_pbmn','0')):+.4f}억, 기관={_parse(output.get('orgn_ntby_tr_pbmn','0')):+.4f}억, 개인={_parse(output.get('indv_ntby_tr_pbmn','0')):+.4f}억")
+        indv = output.get("prsn_ntby_tr_pbmn") or output.get("indv_ntby_tr_pbmn", "0")
+        print(f"  포맷A(단일dict): 외국인={_parse(output.get('frgn_ntby_tr_pbmn','0')):+.4f}억, 기관={_parse(output.get('orgn_ntby_tr_pbmn','0')):+.4f}억, 개인={_parse(indv):+.4f}억")
     elif isinstance(output, list) and output:
         first = output[0]
         if "frgn_ntby_tr_pbmn" in first:
-            print(f"  포맷B-1(리스트+통합필드): 외국인={_parse(first.get('frgn_ntby_tr_pbmn','0')):+.4f}억, 기관={_parse(first.get('orgn_ntby_tr_pbmn','0')):+.4f}억, 개인={_parse(first.get('indv_ntby_tr_pbmn','0')):+.4f}억")
+            indv = first.get("prsn_ntby_tr_pbmn") or first.get("indv_ntby_tr_pbmn", "0")
+            print(f"  포맷B-1(리스트+통합필드): 외국인={_parse(first.get('frgn_ntby_tr_pbmn','0')):+.4f}억, 기관={_parse(first.get('orgn_ntby_tr_pbmn','0')):+.4f}억, 개인={_parse(indv):+.4f}억")
         else:
             def _rv(rows, i): return _parse(rows[i].get("ntby_tr_pbmn","0")) if i < len(rows) else 0.0
             print(f"  포맷B-2(유형별리스트): 개인[0]={_rv(output,0):+.4f}억, 외국인[1]={_rv(output,1):+.4f}억, 기관합계[2]={_rv(output,2):+.4f}억")
