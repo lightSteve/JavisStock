@@ -1418,11 +1418,21 @@ def _patch_change_rates_from_history(ohlcv: pd.DataFrame, date: str) -> pd.DataF
 
 
 def _save_full_snapshot(df: pd.DataFrame, date: str, market: str):
-    """종목명 + 수급 + 섹터 포함 완전한 스냅샷 저장."""
-    os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
-    filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
+    """종목명 + 수급 + 섹터 포함 완전한 스냅샷 저장 (로컬 CSV + Supabase)."""
     df["스냅샷일자"] = date
-    df.to_csv(filepath, encoding="utf-8-sig")
+    # 1) 로컬 CSV 저장
+    try:
+        os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+        filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
+        df.to_csv(filepath, encoding="utf-8-sig")
+    except Exception:
+        pass
+    # 2) Supabase 저장 (재배포·재시작 후에도 유지)
+    try:
+        from data.supabase_db import save_market_snapshot
+        save_market_snapshot(date, market, df)
+    except Exception:
+        pass
 
 
 
@@ -1459,12 +1469,27 @@ def save_daily_snapshot(date: str, market: str = "ALL") -> str:
 
 
 def load_daily_snapshot(date: str, market: str = "ALL") -> pd.DataFrame:
-    """저장된 특정 일자 스냅샷 로드."""
+    """저장된 특정 일자 스냅샷 로드. 로컬 → Supabase 순으로 시도."""
+    # 1) 로컬 CSV
     filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
-    if not os.path.exists(filepath):
-        return pd.DataFrame()
-    df = pd.read_csv(filepath, index_col=0, encoding="utf-8-sig")
-    return df
+    if os.path.exists(filepath):
+        df = pd.read_csv(filepath, index_col=0, encoding="utf-8-sig")
+        return df
+    # 2) Supabase fallback (Streamlit Cloud 재시작 후 로컬 파일 없을 때)
+    try:
+        from data.supabase_db import load_market_snapshot
+        df = load_market_snapshot(date, market)
+        if not df.empty:
+            # 로컬에도 캐시해 두면 다음 호출이 빠름
+            try:
+                os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+                df.to_csv(filepath, encoding="utf-8-sig")
+            except Exception:
+                pass
+            return df
+    except Exception:
+        pass
+    return pd.DataFrame()
 
 
 def load_snapshot_range(start_date: str, end_date: str, market: str = "ALL") -> pd.DataFrame:
@@ -1500,15 +1525,22 @@ def load_snapshot_range(start_date: str, end_date: str, market: str = "ALL") -> 
 
 
 def list_available_snapshots(market: str = "ALL") -> list:
-    """저장된 스냅샷 일자 목록 반환."""
-    if not os.path.isdir(_SNAPSHOT_DIR):
-        return []
-    dates = []
-    suffix = f"_{market}.csv"
-    for fname in sorted(os.listdir(_SNAPSHOT_DIR)):
-        if fname.endswith(suffix):
-            dates.append(fname.replace(suffix, ""))
-    return dates
+    """저장된 스냅샷 일자 목록 반환 (로컬 + Supabase 합산, 중복 제거)."""
+    dates = set()
+    # 로컬 파일
+    if os.path.isdir(_SNAPSHOT_DIR):
+        suffix = f"_{market}.csv"
+        for fname in os.listdir(_SNAPSHOT_DIR):
+            if fname.endswith(suffix):
+                dates.add(fname.replace(suffix, ""))
+    # Supabase fallback
+    try:
+        from data.supabase_db import list_market_snapshots
+        for d in list_market_snapshots(market):
+            dates.add(d)
+    except Exception:
+        pass
+    return sorted(dates)
 
 
 # ---------------------------------------------------------------------------
