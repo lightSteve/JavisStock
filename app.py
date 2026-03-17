@@ -325,12 +325,30 @@ if config.get("load_clicked"):
     run_screening.clear()
     st.session_state["load_data"] = True
 
+# ── 스케줄러 자동 갱신 감지: _store에 새 데이터가 있으면 daily_df 자동 교체 ──
+# 장마감 후 종가 확정 데이터가 들어오면 버튼 재클릭 없이 화면 자동 최신화
+_sched_df, _sched_date, _sched_market, _sched_time = get_cached_data()
+_prev_refresh = st.session_state.get("_last_sched_refresh")
+if (st.session_state.get("load_data")
+        and _sched_df is not None and not _sched_df.empty
+        and _sched_date == date_str and _sched_market == market
+        and _sched_time is not None
+        and _sched_time != _prev_refresh):
+    # 새로운 갱신 감지 → session_state 교체 후 rerun
+    st.session_state["daily_df"] = _sched_df
+    st.session_state["_last_sched_refresh"] = _sched_time
+    load_daily_data_cached.clear()
+    run_screening.clear()
+    st.rerun()
+
 if st.session_state.get("load_data"):
     # 스케줄러에 이미 데이터가 있으면 즉시 사용
     _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
     if (_cached_df is not None and not _cached_df.empty
             and _cached_date == date_str and _cached_market == market):
         daily_df = _cached_df
+        if st.session_state.get("_last_sched_refresh") is None and _cached_time:
+            st.session_state["_last_sched_refresh"] = _cached_time
     else:
         daily_df = load_daily_data_cached(date_str, market, supply_days)
 
