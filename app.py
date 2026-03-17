@@ -280,12 +280,8 @@ top_n = config["top_n"]
 start_scheduler(date_str, market, supply_days)
 
 # ===========================================================================
-# 로드 버튼 (사이드바 상단에 배치됨)
+# 로드 버튼 (사이드바 상단에 배치됨) — 캐시 함수 정의 후 처리
 # ===========================================================================
-if config.get("load_clicked"):
-    load_daily_data_cached.clear()
-    run_screening.clear()
-    st.session_state["load_data"] = True
 
 # 스케줄러 상태 표시 (사이드바)
 _sched_status = get_data_status()
@@ -321,6 +317,13 @@ def run_screening(daily_data_json: str, date: str):
     if "티커" in daily_df.columns:
         daily_df = daily_df.set_index("티커")
     return run_full_screening(daily_df, date)
+
+
+# 캐시 함수 정의 완료 — 이제 로드 버튼 처리 가능
+if config.get("load_clicked"):
+    load_daily_data_cached.clear()
+    run_screening.clear()
+    st.session_state["load_data"] = True
 
 if st.session_state.get("load_data"):
     # 스케줄러에 이미 데이터가 있으면 즉시 사용
