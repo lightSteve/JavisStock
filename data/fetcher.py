@@ -768,6 +768,7 @@ def get_kis_stock_investor(ticker: str) -> Dict:
         resp = requests.get(
             f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor",
             headers={
+                "content-type": "application/json; charset=utf-8",
                 "Authorization": f"Bearer {tok}",
                 "appkey": app_key,
                 "appsecret": app_secret,
