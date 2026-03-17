@@ -197,9 +197,9 @@ def _do_refresh(date: str, market: str, supply_days: int):
         _store.is_refreshing = True
         logger.info(f"[Scheduler] 데이터 갱신 시작: {date} / {market}")
 
-        # 기존 인메모리 캐시 클리어 (최신 데이터를 받기 위해)
-        keys_to_clear = [k for k in _cache if k.startswith("stocks_")]
-        for k in keys_to_clear:
+        # 인메모리 캐시 클리어 (전종목 시세 + 수급 integration)
+        for k in [k for k in list(_cache)
+                  if k.startswith("stocks_") or k.startswith("integration_")]:
             _cache.pop(k, None)
 
         daily_df = smart_load_daily_data(date, market, supply_days)
@@ -392,37 +392,23 @@ def _do_post_market_snapshot(date: str, market: str, supply_days: int):
     """
     from data.fetcher import (
         smart_load_daily_data, _save_full_snapshot,
-        load_daily_snapshot, _SNAPSHOT_DIR,
+        load_daily_snapshot, _SNAPSHOT_DIR, _cache,
     )
     import os
 
     try:
         _store.is_refreshing = True
 
-        # 이미 오늘자 정상 스냅샷이 있으면 스킵
-        filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
-        if os.path.exists(filepath):
-            existing = load_daily_snapshot(date, market)
-            if not existing.empty and "등락률" in existing.columns:
-                if (existing["등락률"] != 0).any():
-                    logger.info("[Scheduler] 이미 정상 스냅샷 있음 — 저장 스킵")
-                    return
+        # 캐시 전체 클리어: 종가 확정 데이터로 재fetch 보장
+        for k in [k for k in list(_cache)
+                  if k.startswith("stocks_") or k.startswith("integration_")]:
+            _cache.pop(k, None)
 
-        # _store에 장중 데이터가 있으면 사용
-        df, stored_date, stored_market, _ = _store.get()
-        if (df is not None and not df.empty
-                and stored_date == date and stored_market == market
-                and "등락률" in df.columns and (df["등락률"] != 0).any()):
-            _save_full_snapshot(df, date, market)
-            logger.info(f"[Scheduler] 장마감 스냅샷 저장 완료 (캐시): {len(df)}종목")
-            return
-
-        # 캐시에 정상 데이터가 없으면 API에서 fetch
-        daily_df = smart_load_daily_data(date, market, supply_days)
+        # 장마감 후 API에서 종가 확정 데이터 직접 fetch (스냅샷 유무 무관)
+        daily_df = smart_load_daily_data(date, market, supply_days, force_refresh=True)
         if not daily_df.empty:
             _store.put(daily_df, date, market)
-            # smart_load_daily_data 내부에서 이미 스냅샷 저장 시도함
-            logger.info(f"[Scheduler] 장마감 스냅샷 저장 완료 (API fetch): {len(daily_df)}종목")
+            logger.info(f"[Scheduler] 장마감 스냅샷 저장 완료: {len(daily_df)}종목")
         else:
             logger.warning("[Scheduler] 장마감 스냅샷 저장 실패: 데이터 비어있음")
 

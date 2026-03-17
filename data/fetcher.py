@@ -1318,15 +1318,17 @@ def _is_market_closed(date: str) -> bool:
     return False
 
 
-def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5) -> pd.DataFrame:
+def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5,
+                          force_refresh: bool = False) -> pd.DataFrame:
     """
     스마트 데이터 로더:
     1) 장 마감된 날짜 → 스냅샷 CSV가 있으면 즉시 로드 (~0.5초)
     2) 스냅샷 없거나 장중 → API에서 fetch 후 장 마감이면 스냅샷 저장
     3) 등락률이 전부 0(장 외 시간) → 개별 종목 히스토리로 보정
+    force_refresh=True: 스냅샷 캐시 무시하고 API에서 직접 fetch (장마감 후 확정 종가 확보용)
     """
-    # 1) 스냅샷 체크 (장 마감된 날짜만)
-    if _is_market_closed(date):
+    # 1) 스냅샷 체크 (장 마감된 날짜만, force_refresh 아닐 때만)
+    if _is_market_closed(date) and not force_refresh:
         cached = load_daily_snapshot(date, market)
         if not cached.empty and "종목명" in cached.columns:
             # 등락률이 전부 0인 비정상 스냅샷이면 무시하고 API에서 다시 fetch
