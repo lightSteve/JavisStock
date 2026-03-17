@@ -579,17 +579,24 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
 
             pnl_color = "#ef4444" if pnl_val >= 0 else "#3b82f6"
             day_color = "#ef4444" if day_change >= 0 else "#3b82f6"
-            inst_color = "#ef4444" if inst_d >= 0 else "#3b82f6"
-            frgn_color = "#ef4444" if frgn_d >= 0 else "#3b82f6"
+
+            # 0.05억(500만원) 미만은 중립으로 처리 — -0.0 표시 방지
+            _THRESHOLD = 0.05
+            inst_neutral = abs(inst_d) < _THRESHOLD
+            frgn_neutral = abs(frgn_d) < _THRESHOLD
+            inst_d_disp = 0.0 if inst_neutral else inst_d
+            frgn_d_disp = 0.0 if frgn_neutral else frgn_d
+            inst_color = "#94a3b8" if inst_neutral else ("#ef4444" if inst_d > 0 else "#3b82f6")
+            frgn_color = "#94a3b8" if frgn_neutral else ("#ef4444" if frgn_d > 0 else "#3b82f6")
 
             # 수급 라벨: 실시간이면 당일, 아니면 5일 누적
             live_dot = '<span style="color:#ef4444;">●</span> ' if sup_live else ""
             inst_period = "당일" if sup_live else f"5일({sup_date}까지)"
             frgn_period = "당일" if sup_live else f"5일({sup_date}까지)"
-            inst_trend = "진입중" if inst_d >= 0 else "이탈중"
-            frgn_trend = "진입중" if frgn_d >= 0 else "이탈중"
-            inst_trend_color = "#ef4444" if inst_d >= 0 else "#3b82f6"
-            frgn_trend_color = "#ef4444" if frgn_d >= 0 else "#3b82f6"
+            inst_trend = "중립" if inst_neutral else ("진입중" if inst_d > 0 else "이탈중")
+            frgn_trend = "중립" if frgn_neutral else ("진입중" if frgn_d > 0 else "이탈중")
+            inst_trend_color = "#94a3b8" if inst_neutral else ("#ef4444" if inst_d > 0 else "#3b82f6")
+            frgn_trend_color = "#94a3b8" if frgn_neutral else ("#ef4444" if frgn_d > 0 else "#3b82f6")
 
             # 매수/매도 breakdown HTML (실시간이 아닐 때만 표시)
             if not sup_live and (inst_buy > 0 or inst_sell > 0):
@@ -644,14 +651,14 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 f'<div style="text-align:center; min-width:100px;">'
                 f'<div style="font-size:0.72em; color:#94a3b8;">{live_dot}기관 {inst_period}</div>'
                 f'<div style="font-weight:700; font-size:0.88em; color:{inst_color};">'
-                f'{inst_d:+.1f}억</div>'
+                f'{inst_d_disp:+.1f}억</div>'
                 f'<div style="font-size:0.7em; font-weight:600; color:{inst_trend_color};">{inst_trend}</div>'
                 f'{inst_breakdown}'
                 f'</div>'
                 f'<div style="text-align:center; min-width:100px;">'
                 f'<div style="font-size:0.72em; color:#94a3b8;">{live_dot}외국인 {frgn_period}</div>'
                 f'<div style="font-weight:700; font-size:0.88em; color:{frgn_color};">'
-                f'{frgn_d:+.1f}억</div>'
+                f'{frgn_d_disp:+.1f}억</div>'
                 f'<div style="font-size:0.7em; font-weight:600; color:{frgn_trend_color};">{frgn_trend}</div>'
                 f'{frgn_breakdown}'
                 f'</div>'
