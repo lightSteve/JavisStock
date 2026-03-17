@@ -208,55 +208,69 @@ def _render_kis_settings():
                                 "custtype": "P",
                                 "content-type": "application/json; charset=utf-8",
                             }
-                            # Test 1: 주식현재가 투자자 (FHKST01010900)
+                            # Test: 주식현재가 투자자 (FHKST01010900) — LS머트리얼즈 전체 값 덤프
                             try:
+                                import datetime as _dt
+                                today_str = _dt.date.today().strftime("%Y%m%d")
                                 r = _req.get(
                                     f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor",
-                                    headers={**hdrs, "tr_id": "FHKST01010900"},
-                                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "005930"},
+                                    headers={**hdrs, "content-type": "application/json; charset=utf-8",
+                                             "tr_id": "FHKST01010900"},
+                                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "417200"},
                                     timeout=10,
                                 )
                                 data = r.json()
                                 rt_cd = data.get("rt_cd", "?")
                                 msg = data.get("msg1", "")
                                 if rt_cd == "0":
-                                    # 전체 응답 구조 덤프
-                                    top_keys = list(data.keys())
-                                    st.success(f"✅ FHKST01010900 응답 성공 | 최상위 키: {top_keys}")
-                                    for key in ["output", "output1", "output2"]:
-                                        raw = data.get(key)
-                                        if raw is None:
-                                            st.caption(f"  [{key}]: 없음")
-                                        elif isinstance(raw, list):
-                                            st.caption(f"  [{key}]: 리스트 {len(raw)}행")
-                                            if raw and isinstance(raw[0], dict):
-                                                st.code(f"행[0] 키: {list(raw[0].keys())}\n행[0] 값: { {k: raw[0][k] for k in list(raw[0].keys())[:6]} }")
-                                        elif isinstance(raw, dict):
-                                            st.caption(f"  [{key}]: dict")
-                                            st.code(f"키: {list(raw.keys())}\n값(일부): { {k: raw[k] for k in list(raw.keys())[:8]} }")
-                                        else:
-                                            st.caption(f"  [{key}]: {type(raw).__name__} = {raw}")
+                                    raw = data.get("output") or data.get("output1")
+                                    st.success(f"✅ FHKST01010900 성공 (LS머트리얼즈) | 최상위 키: {list(data.keys())}")
+                                    if isinstance(raw, list):
+                                        # 날짜 내림차순 정렬 후 최근 3행 표시
+                                        rows = sorted(
+                                            [r2 for r2 in raw if isinstance(r2, dict)],
+                                            key=lambda x: x.get("stck_bsop_date", ""), reverse=True
+                                        )
+                                        st.caption(f"총 {len(rows)}행 | 최근 3행 전체 값:")
+                                        for row in rows[:3]:
+                                            st.code(
+                                                f"날짜: {row.get('stck_bsop_date')}\n"
+                                                f"  종가:          {row.get('stck_clpr')}\n"
+                                                f"  외국인 순매수수량: {row.get('frgn_ntby_qty')}\n"
+                                                f"  기관계 순매수수량: {row.get('orgn_ntby_qty')}\n"
+                                                f"  개인  순매수수량: {row.get('prsn_ntby_qty')}\n"
+                                                f"  외국인 순매수대금: {row.get('frgn_ntby_tr_pbmn')}\n"
+                                                f"  기관계 순매수대금: {row.get('orgn_ntby_tr_pbmn')}\n"
+                                                f"  개인  순매수대금: {row.get('prsn_ntby_tr_pbmn')}\n"
+                                                f"  외국인 매수대금:  {row.get('frgn_shnu_tr_pbmn')}\n"
+                                                f"  외국인 매도대금:  {row.get('frgn_seln_tr_pbmn')}\n"
+                                                f"  기관계 매수대금:  {row.get('orgn_shnu_tr_pbmn')}\n"
+                                                f"  기관계 매도대금:  {row.get('orgn_seln_tr_pbmn')}\n"
+                                                f"  개인  매수대금:  {row.get('prsn_shnu_tr_pbmn')}\n"
+                                                f"  개인  매도대금:  {row.get('prsn_seln_tr_pbmn')}"
+                                            )
+                                    elif isinstance(raw, dict):
+                                        st.code(str(raw))
                                 else:
                                     st.error(f"❌ [FHKST01010900] rt_cd={rt_cd}: {msg}")
                                     st.code(str(data)[:400])
                             except Exception as e:
                                 st.error(f"❌ [FHKST01010900] 요청 실패: {e}")
-                            # Test 2: 주식현재가 시세 (FHKST01010100) — 기본시세 확인용
+                            # Test 2: 기본시세 확인
                             try:
                                 r2 = _req.get(
                                     f"{KIS_API_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
                                     headers={**hdrs, "tr_id": "FHKST01010100"},
-                                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "005930"},
+                                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": "417200"},
                                     timeout=10,
                                 )
                                 data2 = r2.json()
                                 rt2 = data2.get("rt_cd", "?")
-                                msg2 = data2.get("msg1", "")
                                 if rt2 == "0":
                                     price = data2.get("output", {}).get("stck_prpr", "N/A")
-                                    st.success(f"✅ [기본시세 FHKST01010100] 삼성전자 현재가: {price}원")
+                                    st.success(f"✅ [기본시세] LS머트리얼즈 현재가: {price}원")
                                 else:
-                                    st.error(f"❌ [FHKST01010100] rt_cd={rt2}: {msg2}")
+                                    st.error(f"❌ [FHKST01010100] rt_cd={rt2}: {data2.get('msg1','')}")
                             except Exception as e:
                                 st.error(f"❌ [FHKST01010100] 요청 실패: {e}")
             with col_d:
