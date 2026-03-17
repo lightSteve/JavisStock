@@ -56,6 +56,7 @@ from components.stock_detail_common import render_stock_detail_common
 from components.trading_journal import render_trading_journal
 from components.strategy_picks import render_strategy_picks
 from components.knee_stocks import render_knee_stocks
+from components.my_portfolio import render_my_portfolio
 from logic_market_regime import calc_market_regime, suggest_position_size, check_market_rest_signal
 
 # ===========================================================================
@@ -511,14 +512,15 @@ if st.session_state.get("load_data"):
                 st.info("하락 종목이 없습니다.")
 
     # ===================================================================
-    # 탭 구성: 수급 / 섹터 / 상승종목 / 발굴 / 트레이더(5유형) / 일지 / 상세
+    # 탭 구성: 수급 / 섹터 / 상승종목 / 발굴 / 트레이더(5유형) / 보유종목 / 일지 / 상세
     # ===================================================================
-    tab0, tab1, tab2, tab3, tab_trader, tab_journal, tab4 = st.tabs([
+    tab0, tab1, tab2, tab3, tab_trader, tab_portfolio, tab_journal, tab4 = st.tabs([
         "🏛️ 수급",
         "🗺️ 섹터",
         "📊 상승종목",
         "🔥 발굴",
         "🎯 트레이더",
+        "💼 보유종목",
         "📓 매매일지",
         "📈 상세",
     ])
@@ -681,6 +683,10 @@ if st.session_state.get("load_data"):
             render_strategy_picks(daily_df, date_str)
         with tt_regime:
             render_market_regime(daily_df)
+
+    # --- 탭 보유종목 ---
+    with tab_portfolio:
+        render_my_portfolio(daily_df, date_str)
 
     # --- 탭 매매일지 ---
     with tab_journal:
