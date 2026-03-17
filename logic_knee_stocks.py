@@ -64,6 +64,25 @@ def _prefilter_candidates(daily_df: pd.DataFrame, max_candidates: int = 120) -> 
     """
     df = daily_df.copy()
 
+    # ── 지수연동상품(ETF/ETN) 제외 ─────────────────────────────────────
+    # PBR 의미 없는 패시브 상품 — 종목명 기반으로 사전 제거
+    _ETF_PREFIXES = (
+        "KODEX", "TIGER", "KBSTAR", "HANARO", "ARIRANG", "KOSEF",
+        "ACE", "SOL", "FOCUS", "SMART", "TIMEFOLIO", "PLUS", "KINDEX",
+        "히어로즈", "마이다스"
+    )
+    _ETF_KEYWORDS = ("ETF", "ETN", "인버스", "레버리지", "리버스")
+
+    if "종목명" in df.columns:
+        def _is_index_product(name: str) -> bool:
+            name_up = str(name).upper()
+            if any(name_up.startswith(p.upper()) for p in _ETF_PREFIXES):
+                return True
+            if any(kw in name_up for kw in _ETF_KEYWORDS):
+                return True
+            return False
+        df = df[~df["종목명"].apply(_is_index_product)]
+
     inst = df.get("기관합계_5일", pd.Series(0, index=df.index))
     frgn = df.get("외국인합계_5일", pd.Series(0, index=df.index))
     chg = df.get("등락률", pd.Series(0, index=df.index))
