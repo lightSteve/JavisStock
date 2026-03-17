@@ -375,6 +375,8 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
               and not _snapshot_saved_today):
             logger.info("[Scheduler] 장 마감 감지 — 전종목 스냅샷 자동 저장 시작")
             _do_post_market_snapshot(date, market, supply_days)
+            # 종가 확정 데이터로 분석 재실행
+            _do_analysis(date)
             _snapshot_saved_today = True
         else:
             logger.info("[Scheduler] 장 마감 시간 — API 갱신 스킵")
@@ -508,6 +510,14 @@ def get_data_status() -> dict:
 def get_cached_smart_top3(date: str = "") -> list:
     """사전 계산된 Smart Top 3 결과 조회."""
     return _analysis.get_smart_top3(date)
+
+
+def invalidate_analysis():
+    """분석 캐시 초기화 — 다음 render_smart_top3 호출 시 재계산 트리거."""
+    with _analysis._lock:
+        _analysis._smart_top3 = []
+        _analysis._screened_df = None
+        _analysis._date = ""
 
 
 def get_cached_screened(date: str = "") -> Optional[pd.DataFrame]:

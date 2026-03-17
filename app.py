@@ -56,7 +56,6 @@ from components.stock_detail_common import render_stock_detail_common
 from components.trading_journal import render_trading_journal
 from components.strategy_picks import render_strategy_picks
 from components.knee_stocks import render_knee_stocks
-from components.my_portfolio import render_my_portfolio
 from logic_market_regime import calc_market_regime, suggest_position_size, check_market_rest_signal
 
 # ===========================================================================
@@ -87,48 +86,8 @@ st.markdown(
     section[data-testid="stSidebar"] .stMarkdown,
     section[data-testid="stSidebar"] label,
     section[data-testid="stSidebar"] .stSlider label,
-    section[data-testid="stSidebar"] span,
-    section[data-testid="stSidebar"] p,
-    section[data-testid="stSidebar"] .stRadio label span,
-    section[data-testid="stSidebar"] .stCheckbox label span {
+    section[data-testid="stSidebar"] span {
         color: #e2e8f0 !important;
-    }
-    /* 사이드바 내 모든 input/select 글자색 (폼 포함) */
-    section[data-testid="stSidebar"] input,
-    section[data-testid="stSidebar"] select,
-    section[data-testid="stSidebar"] textarea,
-    section[data-testid="stSidebar"] [data-baseweb="input"] input,
-    section[data-testid="stSidebar"] [data-baseweb="select"] div,
-    section[data-testid="stSidebar"] [data-baseweb="select"] span {
-        color: #1e293b !important;
-    }
-    /* 사이드바 입력 배경: 밝은색 유지 (가독성) */
-    section[data-testid="stSidebar"] [data-baseweb="input"],
-    section[data-testid="stSidebar"] [data-baseweb="select"] > div:first-child,
-    section[data-testid="stSidebar"] .stDateInput [data-baseweb="input"] {
-        background-color: #ffffff !important;
-        border-color: #94a3b8 !important;
-    }
-    /* 사이드바 폼 배경 */
-    section[data-testid="stSidebar"] [data-testid="stForm"] {
-        background-color: #1e293b !important;
-        border-color: #475569 !important;
-    }
-    /* 사이드바 placeholder */
-    section[data-testid="stSidebar"] input::placeholder {
-        color: #94a3b8 !important;
-    }
-    /* 사이드바 버튼 */
-    section[data-testid="stSidebar"] .stButton button,
-    section[data-testid="stSidebar"] .stFormSubmitButton button {
-        color: #f1f5f9 !important;
-        background-color: #475569;
-        border-color: #64748b !important;
-    }
-    section[data-testid="stSidebar"] .stButton button[kind="primary"],
-    section[data-testid="stSidebar"] .stFormSubmitButton button[kind="primary"] {
-        background-color: #4f46e5 !important;
-        color: white !important;
     }
 
     /* ── 헤더 ── */
@@ -321,24 +280,6 @@ top_n = config["top_n"]
 start_scheduler(date_str, market, supply_days)
 
 # ===========================================================================
-# 데이터 로딩 (스케줄러 우선 → 캐시 → API 순)
-# ===========================================================================
-
-@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (장 외 시간에는 종목별 보정으로 1~2분 소요)")
-def load_daily_data_cached(date: str, mkt: str, days: int) -> pd.DataFrame:
-    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용."""
-    return smart_load_daily_data(date, mkt, days)
-
-
-@st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
-def run_screening(daily_data_json: str, date: str):
-    """캐시를 위해 JSON 직렬화된 데이터를 받아 스크리닝."""
-    daily_df = pd.read_json(daily_data_json)
-    if "티커" in daily_df.columns:
-        daily_df = daily_df.set_index("티커")
-    return run_full_screening(daily_df, date)
-
-# ===========================================================================
 # 로드 버튼 (사이드바 상단에 배치됨)
 # ===========================================================================
 if config.get("load_clicked"):
@@ -362,6 +303,24 @@ if _sched_status["has_data"]:
 else:
     if _sched_status["is_refreshing"]:
         st.sidebar.caption("🟡 최초 데이터 준비 중...")
+
+# ===========================================================================
+# 데이터 로딩 (스케줄러 우선 → 캐시 → API 순)
+# ===========================================================================
+
+@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
+def load_daily_data_cached(date: str, mkt: str, days: int) -> pd.DataFrame:
+    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용."""
+    return smart_load_daily_data(date, mkt, days)
+
+
+@st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
+def run_screening(daily_data_json: str, date: str):
+    """캐시를 위해 JSON 직렬화된 데이터를 받아 스크리닝."""
+    daily_df = pd.read_json(daily_data_json)
+    if "티커" in daily_df.columns:
+        daily_df = daily_df.set_index("티커")
+    return run_full_screening(daily_df, date)
 
 if st.session_state.get("load_data"):
     # 스케줄러에 이미 데이터가 있으면 즉시 사용
@@ -533,13 +492,12 @@ if st.session_state.get("load_data"):
     # ===================================================================
     # 탭 구성: 수급 / 섹터 / 상승종목 / 발굴 / 트레이더(5유형) / 일지 / 상세
     # ===================================================================
-    tab0, tab1, tab2, tab3, tab_trader, tab_portfolio, tab_journal, tab4 = st.tabs([
+    tab0, tab1, tab2, tab3, tab_trader, tab_journal, tab4 = st.tabs([
         "🏛️ 수급",
         "🗺️ 섹터",
         "📊 상승종목",
         "🔥 발굴",
         "🎯 트레이더",
-        "💼 보유종목",
         "📓 매매일지",
         "📈 상세",
     ])
@@ -564,6 +522,12 @@ if st.session_state.get("load_data"):
     # --- 탭 3: 오늘의 발굴 종목 ---
     with tab3:
         # ── AI 스마트 Top 3 (멀티팩터 점수 기반) ──
+        _t3_col1, _t3_col2 = st.columns([8, 1])
+        with _t3_col2:
+            if st.button("🔄", help="최신 데이터로 재분석", key="refresh_smart_top3"):
+                from data.scheduler import invalidate_analysis
+                invalidate_analysis()
+                st.rerun()
         _cached_top3 = get_cached_smart_top3(date_str)
         render_smart_top3(daily_df, date_str, precomputed=_cached_top3 or None)
 
@@ -696,10 +660,6 @@ if st.session_state.get("load_data"):
             render_strategy_picks(daily_df, date_str)
         with tt_regime:
             render_market_regime(daily_df)
-
-    # --- 탭 보유종목 ---
-    with tab_portfolio:
-        render_my_portfolio(daily_df, date_str)
 
     # --- 탭 매매일지 ---
     with tab_journal:
