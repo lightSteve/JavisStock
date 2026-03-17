@@ -12,7 +12,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from data.fetcher import get_stock_name, get_stock_ohlcv_history, get_investor_trend_individual
+from data.fetcher import (
+    get_stock_name, get_stock_ohlcv_history, get_investor_trend_individual,
+    get_kis_stock_investor, is_kis_configured,
+)
 from analysis.indicators import calc_moving_averages
 
 
@@ -128,15 +131,44 @@ def _render_chart(ticker: str, date_str: str, key_prefix: str):
     with cols[2]:
         if not supply.empty and "기관합계" in supply.columns:
             inst = supply["기관합계"].tail(5).sum() / 1e8
-            st.metric("기관 5일", f"{inst:+,.1f}억")
+            st.metric("기관 5일", f"{inst:+,.1f}억", help="Naver 확정 데이터 (전일까지)")
         else:
             st.metric("기관 5일", "N/A")
     with cols[3]:
         if not supply.empty and "외국인합계" in supply.columns:
             frgn = supply["외국인합계"].tail(5).sum() / 1e8
-            st.metric("외국인 5일", f"{frgn:+,.1f}억")
+            st.metric("외국인 5일", f"{frgn:+,.1f}억", help="Naver 확정 데이터 (전일까지)")
         else:
             st.metric("외국인 5일", "N/A")
+
+    # 장중 실시간 수급 (KIS)
+    if is_kis_configured():
+        with st.spinner("장중 수급 조회 중..."):
+            kis = get_kis_stock_investor(ticker)
+        if kis:
+            st.markdown("---")
+            st.markdown("##### 📡 오늘 장중 수급 (KIS 실시간)")
+            kc1, kc2, kc3 = st.columns(3)
+            inst_v = kis.get("기관", 0.0)
+            frgn_v = kis.get("외국인", 0.0)
+            indv_v = kis.get("개인", 0.0)
+            with kc1:
+                st.metric("🏛️ 기관", f"{inst_v:+.2f}억",
+                          delta=f"{inst_v:+.2f}억",
+                          delta_color="normal" if inst_v >= 0 else "inverse")
+            with kc2:
+                st.metric("🌍 외국인", f"{frgn_v:+.2f}억",
+                          delta=f"{frgn_v:+.2f}억",
+                          delta_color="normal" if frgn_v >= 0 else "inverse")
+            with kc3:
+                st.metric("👤 개인", f"{indv_v:+.2f}억",
+                          delta=f"{indv_v:+.2f}억",
+                          delta_color="normal" if indv_v >= 0 else "inverse")
+            smart = inst_v + frgn_v
+            if smart > 0:
+                st.caption(f"🔴 스마트머니 순매수 {smart:+.2f}억")
+            elif smart < 0:
+                st.caption(f"🔵 스마트머니 순매도 {smart:+.2f}억")
 
 
 # ─────────────────────────────────────────────────────────────────────

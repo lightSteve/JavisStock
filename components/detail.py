@@ -10,7 +10,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from data.fetcher import get_stock_name, get_stock_ohlcv_history, get_investor_trend_individual
+from data.fetcher import (
+    get_stock_name, get_stock_ohlcv_history, get_investor_trend_individual,
+    get_kis_stock_investor, is_kis_configured,
+)
 from analysis.indicators import calc_moving_averages
 
 
@@ -139,6 +142,9 @@ def render_detail_view(ticker: str, date_str: str):
     # --- 요약 정보 카드 ---
     _render_summary_cards(ohlcv, supply)
 
+    # --- 장중 실시간 수급 (KIS) ---
+    _render_kis_realtime_investor(ticker)
+
 
 def _render_summary_cards(ohlcv: pd.DataFrame, supply: pd.DataFrame):
     """종목 요약 지표 카드."""
@@ -162,13 +168,54 @@ def _render_summary_cards(ohlcv: pd.DataFrame, supply: pd.DataFrame):
     with cols[2]:
         if not supply.empty and "기관합계" in supply.columns:
             inst_5d = supply["기관합계"].tail(5).sum() / 1e8
-            st.metric("기관 5일 순매수", f"{inst_5d:+,.1f}억")
+            st.metric("기관 5일 순매수", f"{inst_5d:+,.1f}억", help="Naver 확정 데이터 (전일까지)")
         else:
             st.metric("기관 5일 순매수", "N/A")
 
     with cols[3]:
         if not supply.empty and "외국인합계" in supply.columns:
             frgn_5d = supply["외국인합계"].tail(5).sum() / 1e8
-            st.metric("외국인 5일 순매수", f"{frgn_5d:+,.1f}억")
+            st.metric("외국인 5일 순매수", f"{frgn_5d:+,.1f}억", help="Naver 확정 데이터 (전일까지)")
         else:
             st.metric("외국인 5일 순매수", "N/A")
+
+
+def _render_kis_realtime_investor(ticker: str):
+    """KIS 장중 실시간 수급 표시 (설정된 경우에만)."""
+    if not is_kis_configured():
+        return
+
+    with st.spinner("장중 수급 조회 중..."):
+        kis = get_kis_stock_investor(ticker)
+
+    st.markdown("---")
+    st.markdown("### 📡 오늘 장중 수급 (KIS 실시간)")
+
+    if not kis:
+        st.caption("장중 수급 데이터를 가져올 수 없습니다. (장 마감 후이거나 API 오류)")
+        return
+
+    kc1, kc2, kc3 = st.columns(3)
+    inst_v = kis.get("기관", 0.0)
+    frgn_v = kis.get("외국인", 0.0)
+    indv_v = kis.get("개인", 0.0)
+
+    with kc1:
+        delta_color = "normal" if inst_v >= 0 else "inverse"
+        st.metric("🏛️ 기관 순매수", f"{inst_v:+.2f}억", delta=f"{inst_v:+.2f}억", delta_color=delta_color)
+    with kc2:
+        delta_color = "normal" if frgn_v >= 0 else "inverse"
+        st.metric("🌍 외국인 순매수", f"{frgn_v:+.2f}억", delta=f"{frgn_v:+.2f}억", delta_color=delta_color)
+    with kc3:
+        delta_color = "normal" if indv_v >= 0 else "inverse"
+        st.metric("👤 개인 순매수", f"{indv_v:+.2f}억", delta=f"{indv_v:+.2f}억", delta_color=delta_color)
+
+    # 스마트머니 합산 신호
+    smart = inst_v + frgn_v
+    if smart > 0:
+        signal = f"🔴 스마트머니 순매수 {smart:+.2f}억 (기관+외국인)"
+    elif smart < 0:
+        signal = f"🔵 스마트머니 순매도 {smart:+.2f}억 (기관+외국인)"
+    else:
+        signal = "⚪ 스마트머니 중립"
+    st.caption(signal)

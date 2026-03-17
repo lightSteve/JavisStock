@@ -386,18 +386,38 @@ def get_investor_trend_individual(ticker: str) -> pd.DataFrame:
     """
     개별 종목 투자자 동향 (최근 5거래일, integration 엔드포인트).
     반환: index=날짜, columns=[기관합계, 외국인합계, 개인]  (순매수대금, 원)
+
+    장중에는 오늘 closePrice=0 → Naver basic 엔드포인트로 현재가 보완.
     """
     data = _fetch_stock_integration(ticker)
     trends = data.get("dealTrendInfos", [])
     if not trends:
         return pd.DataFrame()
 
+    today_str = datetime.datetime.now().strftime("%Y%m%d")
+    _current_price_cache = {}  # 이 호출 내에서만 사용
+
+    def _get_current_price() -> int:
+        """Naver basic 엔드포인트로 현재가 조회 (호출당 1회 캐시)."""
+        if "p" not in _current_price_cache:
+            try:
+                r = _session.get(f"{NAVER_API}/stock/{ticker}/basic", timeout=5)
+                r.raise_for_status()
+                _current_price_cache["p"] = _to_int(r.json().get("closePrice", 0))
+            except Exception:
+                _current_price_cache["p"] = 0
+        return _current_price_cache["p"]
+
     rows = []
     for t in trends:
         bizdate = t.get("bizdate", "")
         if not bizdate:
             continue
-        price = _to_int(t.get("closePrice", 0)) or 1
+        close = _to_int(t.get("closePrice", 0))
+        # 장중 오늘 데이터는 closePrice=0 → 현재가로 대체
+        if close == 0 and bizdate == today_str:
+            close = _get_current_price()
+        price = close or 1
         rows.append({
             "날짜": bizdate,
             "기관합계": _to_signed_int(t.get("organPureBuyQuant", 0)) * price,
@@ -726,6 +746,10 @@ def get_kis_stock_investor(ticker: str) -> Dict:
 
     반환: {"외국인": -1.07, "기관": -4.51, "개인": 5.58}  (단위: 억원)
           자격증명 미설정 / API 오류 시: {} 반환
+
+    [KIS API 응답 포맷 처리]
+    - 포맷 A: output 이 단일 dict, 키= frgn_ntby_tr_pbmn / orgn_ntby_tr_pbmn / indv_ntby_tr_pbmn
+    - 포맷 B: output 이 투자자유형별 리스트 (0=개인, 1=외국인, 2=기관합계), 각 행 키= ntby_tr_pbmn
     """
     if not is_kis_configured():
         return {}
@@ -756,28 +780,61 @@ def get_kis_stock_investor(ticker: str) -> Dict:
         data = resp.json()
         if data.get("rt_cd") != "0":
             return {}
-        item = data.get("output")
-        if isinstance(item, list):
-            item = item[0] if item else {}
-        if not item:
-            return {}
 
-        def _eok(key: str) -> float:
-            """원(KRW) → 억원 변환 (frgn_ntby_tr_pbmn 등 거래대금 필드)."""
-            v = str(item.get(key, "0")).replace(",", "").replace("+", "")
+        def _eok_str(s) -> float:
+            """'+1,234,567,890' 또는 '-...' → 억원 float. 부호 보존."""
+            v = str(s).replace(",", "").replace("+", "").strip()
             try:
                 return float(v) / 1e8
             except ValueError:
                 return 0.0
 
-        result = {
-            "외국인": _eok("frgn_ntby_tr_pbmn"),
-            "기관": _eok("orgn_ntby_tr_pbmn"),
-            "개인": _eok("indv_ntby_tr_pbmn"),
-            "_ts": now,
-        }
-        _cache[cache_key] = result
-        return {k: v for k, v in result.items() if not k.startswith("_")}
+        output = data.get("output") or data.get("output1")
+        if not output:
+            return {}
+
+        # ── 포맷 A: 단일 dict (frgn_ntby_tr_pbmn 키 보유) ──────────────
+        if isinstance(output, dict):
+            result = {
+                "외국인": _eok_str(output.get("frgn_ntby_tr_pbmn", "0")),
+                "기관": _eok_str(output.get("orgn_ntby_tr_pbmn", "0")),
+                "개인": _eok_str(output.get("indv_ntby_tr_pbmn", "0")),
+                "_ts": now,
+            }
+            _cache[cache_key] = result
+            return {k: v for k, v in result.items() if not k.startswith("_")}
+
+        # ── 포맷 B: 리스트 ──────────────────────────────────────────────
+        if isinstance(output, list) and output:
+            first = output[0]
+            # B-1: 리스트 첫 행에 frgn_/orgn_/indv_ 통합 필드가 있는 경우
+            if "frgn_ntby_tr_pbmn" in first:
+                result = {
+                    "외국인": _eok_str(first.get("frgn_ntby_tr_pbmn", "0")),
+                    "기관": _eok_str(first.get("orgn_ntby_tr_pbmn", "0")),
+                    "개인": _eok_str(first.get("indv_ntby_tr_pbmn", "0")),
+                    "_ts": now,
+                }
+                _cache[cache_key] = result
+                return {k: v for k, v in result.items() if not k.startswith("_")}
+
+            # B-2: 투자자 유형별 행 리스트 (0=개인 1=외국인 2=기관합계)
+            # ntby_tr_pbmn 필드에 순매수 거래대금(원)
+            def _row_val(rows, idx):
+                if idx < len(rows):
+                    return _eok_str(rows[idx].get("ntby_tr_pbmn", "0"))
+                return 0.0
+
+            result = {
+                "개인": _row_val(output, 0),
+                "외국인": _row_val(output, 1),
+                "기관": _row_val(output, 2),
+                "_ts": now,
+            }
+            _cache[cache_key] = result
+            return {k: v for k, v in result.items() if not k.startswith("_")}
+
+        return {}
     except Exception:
         return {}
 
@@ -880,19 +937,25 @@ def get_stock_fundamentals(ticker: str) -> Dict:
     종목의 PER, EPS, 분기별 영업이익 등 펀더멘털 정보.
     integration + finance/quarter 엔드포인트를 결합.
     """
-    result = {"PER": "", "EPS": "", "PBR": "", "배당수익률": "", "분기실적": []}
+    result = {"PER": "", "EPS": "", "PBR": "", "BPS": "", "배당수익률": "", "분기실적": []}
+
+    def _strip_unit(s: str) -> str:
+        """'3.06배' → '3.06', '6,564원' → '6564', '0.85%' → '0.85' 등 단위 제거."""
+        return str(s).replace(",", "").replace("배", "").replace("원", "").replace("%", "").strip()
 
     # 1) integration 에서 PER/EPS/PBR
     data = _fetch_stock_integration(ticker)
     for info in data.get("totalInfos", []):
         code = info.get("code", "")
-        val = info.get("value", "")
+        val = _strip_unit(str(info.get("value", "")))
         if code == "per":
             result["PER"] = val
         elif code == "eps":
             result["EPS"] = val
         elif code == "pbr":
             result["PBR"] = val
+        elif code == "bps":
+            result["BPS"] = val
         elif code == "dividendYieldRatio":
             result["배당수익률"] = val
 
