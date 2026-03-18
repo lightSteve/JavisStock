@@ -313,6 +313,23 @@ def _precompute_screened(daily_df: pd.DataFrame, date: str):
     logger.info("[Scheduler] 기술적 지표 스크리닝 시작")
 
     supply_filtered = screen_by_supply(daily_df)
+
+    # Smart Top3 티커가 발굴 목록에 빠졌으면 강제 포함
+    top3 = _analysis.get_smart_top3()
+    top3_tickers = [r["ticker"] for r in top3]
+    missing = [
+        t for t in top3_tickers
+        if t in daily_df.index and (supply_filtered.empty or t not in supply_filtered.index)
+    ]
+    if missing:
+        extra = daily_df.loc[missing].copy()
+        if "수급합계_5일" not in extra.columns:
+            extra["수급합계_5일"] = (
+                extra.get("기관합계_5일", 0).fillna(0)
+                + extra.get("외국인합계_5일", 0).fillna(0)
+            )
+        supply_filtered = pd.concat([extra, supply_filtered]) if not supply_filtered.empty else extra
+
     if supply_filtered.empty:
         _analysis.put_screened(pd.DataFrame(), date)
         return

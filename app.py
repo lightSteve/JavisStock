@@ -584,6 +584,22 @@ if st.session_state.get("load_data"):
             # 캐시 없으면 기존 방식으로 실시간 분석
             supply_filtered = screen_by_supply(daily_df)
 
+            # Smart Top3 티커가 빠졌으면 강제 포함
+            if _cached_top3:
+                _top3_tickers = [r["ticker"] for r in _cached_top3]
+                _missing = [
+                    t for t in _top3_tickers
+                    if t in daily_df.index and (supply_filtered.empty or t not in supply_filtered.index)
+                ]
+                if _missing:
+                    _extra = daily_df.loc[_missing].copy()
+                    if "수급합계_5일" not in _extra.columns:
+                        _extra["수급합계_5일"] = (
+                            _extra.get("기관합계_5일", 0).fillna(0)
+                            + _extra.get("외국인합계_5일", 0).fillna(0)
+                        )
+                    supply_filtered = pd.concat([_extra, supply_filtered]) if not supply_filtered.empty else _extra
+
             if not supply_filtered.empty:
                 with st.spinner("📊 차트 + 기술 지표 분석 중... (수급 상위 종목 대상)"):
                     screened = add_chart_status(supply_filtered.head(top_n * 2), date_str)
