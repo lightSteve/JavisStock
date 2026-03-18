@@ -171,10 +171,14 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
         },
     )
 
-    # 종목 선택
+    # 종목 선택 (시장 구분 표시)
     ticker_options = df["티커"].tolist()
     name_options = df["종목명"].tolist() if "종목명" in df.columns else ticker_options
-    options = [f"{t} - {n}" for t, n in zip(ticker_options, name_options)]
+    mkt_options = df["시장"].tolist() if "시장" in df.columns else ["" for _ in ticker_options]
+    options = [
+        f"{t} - [{m}] {n}" if m else f"{t} - {n}"
+        for t, n, m in zip(ticker_options, name_options, mkt_options)
+    ]
 
     selected = st.selectbox(
         "🔍 상세 분석할 종목 선택",

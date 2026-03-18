@@ -322,7 +322,9 @@ def _render_add_form(daily_df: pd.DataFrame):
             if daily_df is not None and not daily_df.empty and "종목명" in daily_df.columns:
                 for ticker, row in daily_df.iterrows():
                     name = row.get("종목명", ticker)
-                    stock_options.append(f"{name}({ticker})")
+                    mkt = row.get("시장", "") if "시장" in row.index else ""
+                    mkt_prefix = f"[{mkt}] " if mkt else ""
+                    stock_options.append(f"{mkt_prefix}{name}({ticker})")
             add_ticker_input = st.selectbox(
                 "종목 선택",
                 options=[""] + stock_options,
@@ -353,7 +355,9 @@ def _render_add_form(daily_df: pd.DataFrame):
                 st.warning("수량을 입력해주세요.")
             else:
                 ticker = add_ticker_input.split("(")[-1].rstrip(")")
-                name = add_ticker_input.split("(")[0]
+                # "[KOSPI] 삼성전자" or "삼성전자" 형태 모두 처리
+                raw_name = add_ticker_input.split("(")[0]
+                name = raw_name.split("] ")[-1] if "] " in raw_name else raw_name
                 _add_holding({
                     "ticker": ticker,
                     "name": name,
