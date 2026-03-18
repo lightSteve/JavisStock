@@ -17,7 +17,7 @@ from data.fetcher import (
 from analysis.indicators import calc_moving_averages
 
 
-def render_detail_view(ticker: str, date_str: str):
+def render_detail_view(ticker: str, date_str: str, market: str = ""):
     """
     개별 종목 상세 차트를 렌더링합니다.
     - 캔들 차트 + MA
@@ -27,7 +27,14 @@ def render_detail_view(ticker: str, date_str: str):
     st.markdown("## 📈 종목 상세 분석")
 
     name = get_stock_name(ticker)
-    st.markdown(f"### {name} ({ticker})")
+    mkt_color = "#1d4ed8" if market == "KOSPI" else "#16a34a" if market == "KOSDAQ" else "#94a3b8"
+    mkt_badge = (f'<span style="background:{mkt_color}; color:white; padding:2px 8px;'
+                 f' border-radius:8px; font-size:0.75em; font-weight:700; vertical-align:middle;">'
+                 f'{market}</span>') if market else ""
+    st.markdown(
+        f'<h3 style="margin:0;">{name} ({ticker}) &nbsp;{mkt_badge}</h3>',
+        unsafe_allow_html=True,
+    )
 
     # --- 시세 데이터 가져오기 (최근 120거래일) ---
     end_dt = datetime.datetime.strptime(date_str, "%Y%m%d")

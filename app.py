@@ -405,7 +405,11 @@ if st.session_state.get("load_data"):
             if st.button("✖ 닫기", key="close_search_detail"):
                 st.session_state.pop("show_search_detail", None)
                 st.rerun()
-        render_detail_view(_detail_ticker, date_str)
+        render_detail_view(
+            _detail_ticker,
+            date_str,
+            market=str(daily_df.at[_detail_ticker, "시장"]) if (_detail_ticker in daily_df.index and "시장" in daily_df.columns) else "",
+        )
         st.markdown("---")
 
     # 시장 요약

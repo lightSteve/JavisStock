@@ -46,6 +46,7 @@ def _fetch_and_score(ticker: str, date: str, row: pd.Series) -> Optional[dict]:
         "price": float(row.get("종가", 0)),
         "change": float(row.get("등락률", 0)),
         "sector": str(row.get("업종", "")),
+        "market": str(row.get("시장", "")),
         "inst_5d": float(row.get("기관합계_5일", 0)),
         "frgn_5d": float(row.get("외국인합계_5일", 0)),
         "ohlcv": ohlcv,
@@ -114,6 +115,11 @@ def _render_score_card(res: dict, rank: int):
         f'</div>'
     )
 
+    market = res.get("market", "")
+    mkt_color = "#1d4ed8" if market == "KOSPI" else "#16a34a" if market == "KOSDAQ" else "#94a3b8"
+    mkt_badge = (f'<span style="background:{mkt_color}; color:white; padding:1px 6px;'
+                 f' border-radius:6px; font-size:0.72em; font-weight:700;">{market}</span> ') if market else ""
+
     html = (
         f'<div style="background:#ffffff; border-radius:16px; padding:18px;'
         f' border:1px solid #e2e8f0; box-shadow:0 4px 12px rgba(0,0,0,0.08);">'
@@ -122,9 +128,9 @@ def _render_score_card(res: dict, rank: int):
         f'<span style="font-size:1.4em;">{rank_label}</span>'
         f'{anomaly_badge}'
         f'</div>'
-        # 티커 + 섹터
+        # 티커 + 시장 + 섹터
         f'<div style="font-size:0.72em; color:#94a3b8; margin-bottom:4px;">'
-        f'{res["ticker"]} &nbsp;|&nbsp; {res["sector"]}'
+        f'{mkt_badge}{res["ticker"]} &nbsp;|&nbsp; {res["sector"]}'
         f'</div>'
         # 종목명
         f'<div style="font-size:1.1em; font-weight:bold; color:#1e293b; margin-bottom:6px;">'

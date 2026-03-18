@@ -43,6 +43,7 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
         frgn = row.get("외국인합계_5일", 0) / 1e8
         indv = row.get("개인_5일", 0) / 1e8 if "개인_5일" in row.index else 0
         sector = row.get("업종", "") if "업종" in row.index else ""
+        market = row.get("시장", "") if "시장" in row.index else ""
         supply_total = row.get("수급합계", 0)
         strength = min(100, max(0, supply_total / max_supply * 100))
 
@@ -76,6 +77,11 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
             f'</div>'
         )
 
+        mkt_color = "#1d4ed8" if market == "KOSPI" else "#16a34a" if market == "KOSDAQ" else "#94a3b8"
+        mkt_badge = (f'<span style="background:{mkt_color}; color:white; padding:1px 6px;'
+                     f' border-radius:6px; font-size:0.75em; font-weight:700; margin-left:4px;">'
+                     f'{market}</span>') if market else ""
+
         card_html = (
             f'<div style="background:#ffffff; border-radius:14px; padding:16px;'
             f' margin-bottom:10px; border-left:4px solid #7c3aed;'
@@ -83,6 +89,7 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
             f'<div style="font-size:0.72em;">'
             f'<span style="background:#7c3aed; color:white; padding:2px 8px; border-radius:10px; font-weight:700;">#{rank_num}</span>'
             f' <span style="color:#94a3b8;">{ticker}</span>'
+            f'{mkt_badge}'
             f' <span style="color:#94a3b8; float:right;">{sector}</span>'
             f'</div>'
             f'<div style="font-size:1.05em; font-weight:bold; color:#1e293b; margin:6px 0 4px;">{name}</div>'
@@ -110,6 +117,7 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
     display_cols = []
     col_map = {
         "종목명": "종목명",
+        "시장": "시장",
         "종가": "현재가",
         "등락률": "등락률(%)",
         "기관합계_5일": "기관순매수(5일)",
