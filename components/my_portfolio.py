@@ -560,10 +560,16 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 except Exception:
                     pass
 
+        # daily_df에서 시장 조회
+        mkt = ""
+        if daily_df is not None and ticker in daily_df.index and "시장" in daily_df.columns:
+            mkt = str(daily_df.at[ticker, "시장"])
+
         rows.append({
             "idx": i,
             "종목명": h.get("name", ticker),
             "티커": ticker,
+            "시장": mkt,
             "매수가": f"{buy_price:,}",
             "현재가": f"{cur_price:,}",
             "수량": f"{qty:,}",
@@ -672,12 +678,20 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             else:
                 frgn_breakdown = ""
 
+            _mkt = r.get("시장", "")
+            _mkt_color = "#1d4ed8" if _mkt == "KOSPI" else "#16a34a" if _mkt == "KOSDAQ" else "#94a3b8"
+            _mkt_badge = (
+                f'<span style="background:{_mkt_color}; color:white; padding:1px 5px;'
+                f' border-radius:5px; font-size:0.72em; font-weight:700; margin-left:4px;">'
+                f'{_mkt}</span>'
+            ) if _mkt else ""
+
             st.markdown(
                 f'<div style="background:#fff; border-radius:12px; padding:14px 18px; '
                 f'margin-bottom:8px; border:1px solid #e2e8f0; '
                 f'display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">'
                 f'<div style="min-width:120px;">'
-                f'<div style="font-weight:700; font-size:0.95em; color:#1e293b;">{r["종목명"]}</div>'
+                f'<div style="font-weight:700; font-size:0.95em; color:#1e293b;">{r["종목명"]}{_mkt_badge}</div>'
                 f'<div style="font-size:0.75em; color:#94a3b8;">{r["티커"]} · 매수일 {r["매수일"]}</div>'
                 f'</div>'
                 f'<div style="text-align:center; min-width:80px;">'
