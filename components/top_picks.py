@@ -1,13 +1,15 @@
 """
 오늘의 발굴 종목 (Top Picks) 컴포넌트
 - 수급 상위 카드 표시
-- 스크리닝 결과 테이블
+- 스크리닝 결과 테이블 (관심종목 체크박스 포함)
 """
 
 from typing import Optional
 
 import pandas as pd
 import streamlit as st
+
+from components.watchlist import get_watchlist, add_to_watchlist, remove_from_watchlist
 
 
 def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
@@ -102,6 +104,22 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
 
         with col:
             st.markdown(card_html, unsafe_allow_html=True)
+            # --- 관심종목 버튼 ---
+            wl_tickers = {e["ticker"] for e in get_watchlist()}
+            in_wl = ticker in wl_tickers
+            btn_label = "⭐ 관심 해제" if in_wl else "☆ 관심종목 추가"
+            if st.button(btn_label, key=f"wl_card_{ticker}", use_container_width=True):
+                if in_wl:
+                    remove_from_watchlist(ticker)
+                else:
+                    add_to_watchlist(
+                        ticker=str(ticker),
+                        name=str(name),
+                        price=float(price),
+                        sector=str(sector),
+                        market=str(market),
+                    )
+                st.rerun()
 
 
 def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optional[str]:
@@ -157,19 +175,56 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
     if "등락률(%)" in df_display.columns:
         df_display["등락률(%)"] = df_display["등락률(%)"].round(2)
 
-    st.dataframe(
+    # ── 관심종목 체크박스 열 추가 ──
+    wl_tickers_before = {e["ticker"] for e in get_watchlist()}
+    df_display.insert(0, "⭐", df_display["티커"].isin(wl_tickers_before))
+
+    non_wl_cols = [c for c in df_display.columns if c != "⭐"]
+
+    edited_df = st.data_editor(
         df_display,
         use_container_width=True,
         hide_index=True,
         height=min(len(df_display) * 38 + 40, 700),
         column_config={
+            "⭐": st.column_config.CheckboxColumn(
+                "⭐ 관심",
+                help="체크하면 관심종목으로 추가됩니다. 추가 당시 현재가를 기준으로 수익률을 추적합니다.",
+                width="small",
+            ),
             "등락률(%)": st.column_config.NumberColumn(format="%.2f%%"),
             "기관순매수(5일)": st.column_config.NumberColumn(format="%.1f억"),
             "외국인순매수(5일)": st.column_config.NumberColumn(format="%.1f억"),
             "개인순매수(5일)": st.column_config.NumberColumn(format="%.1f억"),
             "거래대금": st.column_config.NumberColumn(format="%.1f억"),
         },
+        disabled=non_wl_cols,
     )
+
+    # ── 관심종목 변경 감지 및 반영 ──
+    changed = False
+    for _, row in edited_df.iterrows():
+        ticker = str(row["티커"])
+        was_in_wl = ticker in wl_tickers_before
+        is_in_wl = bool(row["⭐"])
+        if is_in_wl and not was_in_wl:
+            stock_rows = df[df["티커"] == ticker]
+            if not stock_rows.empty:
+                sr = stock_rows.iloc[0]
+                add_to_watchlist(
+                    ticker=ticker,
+                    name=str(sr.get("종목명", ticker)),
+                    price=float(sr.get("종가", 0)),
+                    sector=str(sr.get("업종", "")),
+                    market=str(sr.get("시장", "")),
+                )
+                changed = True
+        elif not is_in_wl and was_in_wl:
+            remove_from_watchlist(ticker)
+            changed = True
+
+    if changed:
+        st.rerun()
 
     # 종목 선택 (시장 구분 표시)
     ticker_options = df["티커"].tolist()

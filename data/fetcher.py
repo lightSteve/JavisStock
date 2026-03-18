@@ -323,6 +323,21 @@ def get_realtime_price(ticker: str) -> dict:
         return {"price": 0, "change_rate": 0.0, "name": ticker}
 
 
+def get_realtime_prices_bulk(tickers: list) -> dict:
+    """여러 종목의 실시간 현재가/등락률을 일괄 조회합니다.
+    반환: {ticker: {"price": int, "change_rate": float, "name": str}}
+    API 부하 방지를 위해 0.1초 간격으로 순차 조회합니다.
+    """
+    import time as _time
+    result = {}
+    for ticker in tickers:
+        info = get_realtime_price(ticker)
+        if info["price"] > 0:
+            result[ticker] = info
+        _time.sleep(0.1)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # 공개 API : 투자자별 순매수 (수급)
 # ---------------------------------------------------------------------------

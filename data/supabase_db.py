@@ -1,5 +1,5 @@
 """
-Supabase REST API 헬퍼 — users / portfolios / journals 테이블 CRUD.
+Supabase REST API 헬퍼 — users / portfolios / journals / watchlists 테이블 CRUD.
 파일 기반 저장을 대체하여 Streamlit Cloud 재배포 시에도 데이터가 유지됩니다.
 """
 
@@ -130,6 +130,45 @@ def save_journal(username: str, data: list):
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# watchlists
+# ─────────────────────────────────────────────────────────────────────
+# Supabase SQL (최초 1회 실행):
+#   CREATE TABLE IF NOT EXISTS watchlists (
+#       username   TEXT PRIMARY KEY,
+#       data       JSONB DEFAULT '[]',
+#       updated_at TEXT
+#   );
+# ─────────────────────────────────────────────────────────────────────
+
+def load_watchlist(username: str) -> list:
+    url, _ = _cfg()
+    if not url:
+        return []
+    r = requests.get(
+        f"{url}/rest/v1/watchlists",
+        headers=_headers(),
+        params={"username": f"eq.{username}", "select": "data"},
+        timeout=10,
+    )
+    rows = r.json() if r.ok else []
+    if rows and isinstance(rows[0].get("data"), list):
+        return rows[0]["data"]
+    return []
+
+
+def save_watchlist(username: str, data: list):
+    url, _ = _cfg()
+    if not url:
+        return
+    requests.post(
+        f"{url}/rest/v1/watchlists",
+        headers={**_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+        json={"username": username, "data": data, "updated_at": _now()},
+        timeout=10,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────

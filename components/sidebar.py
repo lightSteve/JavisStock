@@ -9,8 +9,6 @@
 import datetime
 import streamlit as st
 
-from components.auth import render_login_sidebar, is_logged_in, get_username
-
 # 요일 한글 매핑
 _WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 
@@ -26,9 +24,6 @@ def _get_default_date() -> datetime.date:
 def render_sidebar() -> dict:
     """사이드바 위젯을 렌더링하고 선택값을 딕셔너리로 반환."""
     st.sidebar.markdown("## 🎛️ 설정")
-
-    # --- 로그인 ---
-    render_login_sidebar()
 
     # --- 날짜 선택 ---
     st.sidebar.markdown("### 📅 기준일")
