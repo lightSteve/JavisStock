@@ -59,7 +59,10 @@ def add_to_watchlist(
     market: str = "",
     source: str = "",
 ) -> bool:
-    """관심종목 추가. 이미 존재하면 False 반환."""
+    """관심종목 추가. 이미 존재하면 False 반환. 로그인 안 된 경우 False 반환."""
+    if _get_username() == "default":
+        st.toast("⚠️ 관심종목을 추가하려면 먼저 사이드바에서 로그인하세요.", icon="🔐")
+        return False
     entries = get_watchlist()
     if any(e["ticker"] == ticker for e in entries):
         return False
@@ -199,6 +202,16 @@ def _render_watchlist_card(col, row: dict):
 
 def render_watchlist_section(daily_df: pd.DataFrame):
     """관심종목 수익률 현황 섹션 렌더링 (관심종목 없으면 숨김)."""
+    # 로그인 안 된 경우: 항상 expander를 보여주고 로그인 안내
+    if _get_username() == "default":
+        with st.expander("⭐ 관심종목 수익률 현황", expanded=False):
+            st.warning(
+                "⚠️ **로그인이 필요합니다.**  \n"
+                "왼쪽 사이드바(🔐 로그인 패널)에서 로그인하면 이전에 저장한 관심종목을 불러올 수 있습니다.  \n"
+                "페이지를 새로고침하거나 재배포 후에는 다시 로그인해주세요."
+            )
+        return
+
     items = get_watchlist()
     if not items:
         return
