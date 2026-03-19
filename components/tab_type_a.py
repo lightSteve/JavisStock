@@ -156,7 +156,7 @@ def _render_pair_signals(daily_df: pd.DataFrame):
         st.info("현재 상한가 종목이 없거나, 같은 업종 후발 후보가 없습니다.")
         return
 
-    for _, pair in pairs.iterrows():
+    for pair_idx, (_, pair) in enumerate(pairs.iterrows()):
         chg_color = "#dc2626" if pair["후발_등락률"] > 0 else "#2563eb"
         follower_ticker = str(pair.get("후발_ticker", pair.get("후발_종목명", "")))
         follower_name = str(pair["후발_종목명"])
@@ -180,7 +180,7 @@ def _render_pair_signals(daily_df: pd.DataFrame):
                 wl_tickers = {e["ticker"] for e in get_watchlist()}
                 in_wl = follower_ticker in wl_tickers
                 btn_label = "⭐" if in_wl else "☆"
-                if st.button(btn_label, key=f"wl_pair_{follower_ticker}", use_container_width=True):
+                if st.button(btn_label, key=f"wl_pair_{pair_idx}_{follower_ticker}", use_container_width=True):
                     if in_wl:
                         remove_from_watchlist(follower_ticker)
                     else:
