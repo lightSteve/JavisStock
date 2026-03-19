@@ -21,6 +21,7 @@ from logic_patterns import (
     detect_sector_recovering_stocks,
     calc_recovery_stats,
 )
+from components.watchlist import get_watchlist, add_to_watchlist, remove_from_watchlist
 
 
 def render_tab_type_d(daily_df: pd.DataFrame, date_str: str):
@@ -201,19 +202,31 @@ def _render_sector_stock_detail(
         price = srow.get("종가", 0)
         tv = srow.get("거래대금", 0) / 1e8
         card_color = "#dc2626" if change > 0 else "#2563eb" if change < 0 else "#64748b"
-        st.markdown(
-            f'<div style="background:#fff; border-radius:8px; padding:6px 10px; '
-            f'border-left:3px solid {card_color}; margin-bottom:4px;">'
-            f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-            f'<span style="font-weight:700; font-size:0.85em;">{name}'
-            f'<span style="color:#94a3b8; font-size:0.72em; margin-left:4px;">{ticker}</span></span>'
-            f'<span style="color:{card_color}; font-weight:700; font-size:0.88em;">{change:+.2f}%</span>'
-            f'</div>'
-            f'<div style="font-size:0.7em; color:#64748b;">'
-            f'{price:,.0f}원 · 거래대금 {tv:,.0f}억</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        col_card, col_btn = st.columns([5, 1])
+        with col_card:
+            st.markdown(
+                f'<div style="background:#fff; border-radius:8px; padding:6px 10px; '
+                f'border-left:3px solid {card_color}; margin-bottom:4px;">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                f'<span style="font-weight:700; font-size:0.85em;">{name}'
+                f'<span style="color:#94a3b8; font-size:0.72em; margin-left:4px;">{ticker}</span></span>'
+                f'<span style="color:{card_color}; font-weight:700; font-size:0.88em;">{change:+.2f}%</span>'
+                f'</div>'
+                f'<div style="font-size:0.7em; color:#64748b;">'
+                f'{price:,.0f}원 · 거래대금 {tv:,.0f}억</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            wl_tickers = {e["ticker"] for e in get_watchlist()}
+            in_wl = str(ticker) in wl_tickers
+            if st.button("⭐" if in_wl else "☆", key=f"wl_sec_top5_{ticker}", use_container_width=True):
+                if in_wl:
+                    remove_from_watchlist(str(ticker))
+                else:
+                    add_to_watchlist(ticker=str(ticker), name=str(name), price=float(price),
+                                     sector=str(srow.get("업종", "")), market=str(srow.get("시장", "")))
+                st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -280,19 +293,31 @@ def _render_sector_scanner(daily_df: pd.DataFrame, sector_summary: pd.DataFrame,
             else:
                 sev, sev_color = "주의", "#a16207"
 
-            st.markdown(
-                f'<div style="background:#fff; border-radius:8px; padding:8px 12px; '
-                f'border-left:3px solid {sev_color}; margin-bottom:4px;">'
-                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-                f'<span style="font-weight:700; font-size:0.88em;">{name}'
-                f'<span style="color:#94a3b8; font-size:0.78em; margin-left:4px;">{ticker}</span></span>'
-                f'<span style="color:{sev_color}; font-weight:700; font-size:0.88em;">{change:.1f}% {sev}</span>'
-                f'</div>'
-                f'<div style="font-size:0.72em; color:#64748b;">'
-                f'{price:,.0f}원 · 거래대금 {tv:,.0f}억</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+            col_card, col_btn = st.columns([5, 1])
+            with col_card:
+                st.markdown(
+                    f'<div style="background:#fff; border-radius:8px; padding:8px 12px; '
+                    f'border-left:3px solid {sev_color}; margin-bottom:4px;">'
+                    f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                    f'<span style="font-weight:700; font-size:0.88em;">{name}'
+                    f'<span style="color:#94a3b8; font-size:0.78em; margin-left:4px;">{ticker}</span></span>'
+                    f'<span style="color:{sev_color}; font-weight:700; font-size:0.88em;">{change:.1f}% {sev}</span>'
+                    f'</div>'
+                    f'<div style="font-size:0.72em; color:#64748b;">'
+                    f'{price:,.0f}원 · 거래대금 {tv:,.0f}억</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            with col_btn:
+                wl_tickers = {e["ticker"] for e in get_watchlist()}
+                in_wl = str(ticker) in wl_tickers
+                if st.button("⭐" if in_wl else "☆", key=f"wl_crash_{sector}_{ticker}", use_container_width=True):
+                    if in_wl:
+                        remove_from_watchlist(str(ticker))
+                    else:
+                        add_to_watchlist(ticker=str(ticker), name=str(name), price=float(price),
+                                         sector=str(row.get("업종", "")), market=str(row.get("시장", "")))
+                    st.rerun()
 
             with st.expander(f"📰 {name} 뉴스"):
                 news = get_stock_news_list(ticker)
@@ -346,19 +371,31 @@ def _render_sector_recovery(daily_df: pd.DataFrame, sector_summary: pd.DataFrame
             price = row.get("종가", 0)
             tv = row.get("거래대금", 0) / 1e8
 
-            st.markdown(
-                f'<div style="background:#fff; border-radius:8px; padding:8px 12px; '
-                f'border-left:3px solid #16a34a; margin-bottom:4px;">'
-                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-                f'<span style="font-weight:700; font-size:0.88em;">🟢 {name}'
-                f'<span style="color:#94a3b8; font-size:0.78em; margin-left:4px;">{ticker}</span></span>'
-                f'<span style="color:#16a34a; font-weight:700; font-size:0.88em;">+{change:.1f}%</span>'
-                f'</div>'
-                f'<div style="font-size:0.72em; color:#64748b;">'
-                f'{price:,.0f}원 · 거래대금 {tv:,.0f}억</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+            col_card, col_btn = st.columns([5, 1])
+            with col_card:
+                st.markdown(
+                    f'<div style="background:#fff; border-radius:8px; padding:8px 12px; '
+                    f'border-left:3px solid #16a34a; margin-bottom:4px;">'
+                    f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                    f'<span style="font-weight:700; font-size:0.88em;">🟢 {name}'
+                    f'<span style="color:#94a3b8; font-size:0.78em; margin-left:4px;">{ticker}</span></span>'
+                    f'<span style="color:#16a34a; font-weight:700; font-size:0.88em;">+{change:.1f}%</span>'
+                    f'</div>'
+                    f'<div style="font-size:0.72em; color:#64748b;">'
+                    f'{price:,.0f}원 · 거래대금 {tv:,.0f}억</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            with col_btn:
+                wl_tickers = {e["ticker"] for e in get_watchlist()}
+                in_wl = str(ticker) in wl_tickers
+                if st.button("⭐" if in_wl else "☆", key=f"wl_recov_{sector}_{ticker}", use_container_width=True):
+                    if in_wl:
+                        remove_from_watchlist(str(ticker))
+                    else:
+                        add_to_watchlist(ticker=str(ticker), name=str(name), price=float(price),
+                                         sector=str(row.get("업종", "")), market=str(row.get("시장", "")))
+                    st.rerun()
 
     # 개별 종목 상세 분석 (선택형)
     st.markdown("---")

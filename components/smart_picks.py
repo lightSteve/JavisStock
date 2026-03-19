@@ -17,6 +17,7 @@ import streamlit as st
 
 from data.fetcher import get_stock_ohlcv_history, get_investor_trend_individual
 from analysis.scoring import calc_composite_score, is_anomaly_neglected_rebound
+from components.watchlist import get_watchlist, add_to_watchlist, remove_from_watchlist
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +340,21 @@ def render_smart_top3(daily_df: pd.DataFrame, date: str, precomputed: list = Non
     for i, res in enumerate(top3):
         with card_cols[i]:
             _render_score_card(res, rank=i + 1)
+            wl_tickers = {e["ticker"] for e in get_watchlist()}
+            in_wl = res["ticker"] in wl_tickers
+            btn_label = "⭐ 관심 해제" if in_wl else "☆ 관심종목 추가"
+            if st.button(btn_label, key=f"wl_smart_{res['ticker']}", use_container_width=True):
+                if in_wl:
+                    remove_from_watchlist(res["ticker"])
+                else:
+                    add_to_watchlist(
+                        ticker=str(res["ticker"]),
+                        name=str(res["name"]),
+                        price=float(res["price"]),
+                        sector=str(res["sector"]),
+                        market=str(res.get("market", "")),
+                    )
+                st.rerun()
 
     st.markdown("---")
 

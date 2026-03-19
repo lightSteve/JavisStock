@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 from typing import Dict, List
 
+from components.watchlist import get_watchlist, add_to_watchlist, remove_from_watchlist
 from logic_strategies import (
     ALL_STRATEGIES,
     screen_scalp_breakout,
@@ -234,6 +235,20 @@ def _render_result_cards(results: list):
                 f'</div>',
                 unsafe_allow_html=True,
             )
+            wl_tickers = {e["ticker"] for e in get_watchlist()}
+            in_wl = res["ticker"] in wl_tickers
+            btn_label = "⭐ 관심 해제" if in_wl else "☆ 관심종목 추가"
+            if st.button(btn_label, key=f"wl_strat_{i}_{res['ticker']}", use_container_width=True):
+                if in_wl:
+                    remove_from_watchlist(res["ticker"])
+                else:
+                    add_to_watchlist(
+                        ticker=str(res["ticker"]),
+                        name=str(res["name"]),
+                        price=float(res["price"]),
+                        sector=str(res["sector"]),
+                    )
+                st.rerun()
 
 
 def _render_result_table(results: list):

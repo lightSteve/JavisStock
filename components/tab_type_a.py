@@ -15,6 +15,7 @@ from data.fetcher import (
     detect_limit_up_stocks,
 )
 from logic_patterns import detect_theme_leaders, detect_limit_up_pairs
+from components.watchlist import get_watchlist, add_to_watchlist, remove_from_watchlist
 
 
 def render_tab_type_a(daily_df: pd.DataFrame, date_str: str):
@@ -73,8 +74,10 @@ def _stock_card_grid(df: pd.DataFrame, badge: str, color: str):
         with cols[i % len(cols)]:
             name = row.get("종목명", ticker)
             change = row.get("등락률", 0)
+            price = row.get("종가", 0)
             tv = row.get("거래대금", 0) / 1e8
             sector = row.get("업종", "") or ""
+            market = row.get("시장", "") or ""
             if not isinstance(sector, str):
                 sector = ""
             st.markdown(
@@ -90,6 +93,21 @@ def _stock_card_grid(df: pd.DataFrame, badge: str, color: str):
                 f'</div>',
                 unsafe_allow_html=True,
             )
+            wl_tickers = {e["ticker"] for e in get_watchlist()}
+            in_wl = str(ticker) in wl_tickers
+            btn_label = "⭐ 관심 해제" if in_wl else "☆ 관심종목 추가"
+            if st.button(btn_label, key=f"wl_typeA_{badge}_{ticker}", use_container_width=True):
+                if in_wl:
+                    remove_from_watchlist(str(ticker))
+                else:
+                    add_to_watchlist(
+                        ticker=str(ticker),
+                        name=str(name),
+                        price=float(price),
+                        sector=str(sector),
+                        market=str(market),
+                    )
+                st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -139,16 +157,31 @@ def _render_pair_signals(daily_df: pd.DataFrame):
 
     for _, pair in pairs.iterrows():
         chg_color = "#dc2626" if pair["후발_등락률"] > 0 else "#2563eb"
-        st.markdown(
-            f'<div style="background:#fff; border-radius:10px; padding:10px 14px; '
-            f'border:1px solid #e2e8f0; margin-bottom:6px;">'
-            f'<span style="font-size:0.72em; color:#94a3b8;">{pair["업종"]}</span>'
-            f'<div style="display:flex; align-items:center; gap:8px; margin:4px 0;">'
-            f'<span style="font-weight:700;">🔒 {pair["대장_종목명"]}</span>'
-            f'<span style="color:#dc2626; font-weight:600;">+{pair["대장_등락률"]:.1f}%</span>'
-            f'<span style="font-size:1.2em;">→</span>'
-            f'<span style="font-weight:700;">🎯 {pair["후발_종목명"]}</span>'
-            f'<span style="color:{chg_color}; font-weight:600;">{pair["후발_등락률"]:+.1f}%</span>'
-            f'</div></div>',
-            unsafe_allow_html=True,
-        )
+        follower_ticker = str(pair.get("후발_ticker", pair.get("후발_종목명", "")))
+        follower_name = str(pair["후발_종목명"])
+        col_card, col_btn = st.columns([5, 1])
+        with col_card:
+            st.markdown(
+                f'<div style="background:#fff; border-radius:10px; padding:10px 14px; '
+                f'border:1px solid #e2e8f0; margin-bottom:6px;">'
+                f'<span style="font-size:0.72em; color:#94a3b8;">{pair["업종"]}</span>'
+                f'<div style="display:flex; align-items:center; gap:8px; margin:4px 0;">'
+                f'<span style="font-weight:700;">🔒 {pair["대장_종목명"]}</span>'
+                f'<span style="color:#dc2626; font-weight:600;">+{pair["대장_등락률"]:.1f}%</span>'
+                f'<span style="font-size:1.2em;">→</span>'
+                f'<span style="font-weight:700;">🎯 {pair["후발_종목명"]}</span>'
+                f'<span style="color:{chg_color}; font-weight:600;">{pair["후발_등락률"]:+.1f}%</span>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            if follower_ticker:
+                wl_tickers = {e["ticker"] for e in get_watchlist()}
+                in_wl = follower_ticker in wl_tickers
+                btn_label = "⭐" if in_wl else "☆"
+                if st.button(btn_label, key=f"wl_pair_{follower_ticker}", use_container_width=True):
+                    if in_wl:
+                        remove_from_watchlist(follower_ticker)
+                    else:
+                        add_to_watchlist(ticker=follower_ticker, name=follower_name, price=0.0)
+                    st.rerun()

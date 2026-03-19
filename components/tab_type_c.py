@@ -15,6 +15,7 @@ from data.fetcher import (
     detect_volume_spike_stocks,
 )
 from logic_patterns import detect_breakout_candidates, check_52week_high, check_swing_breakout
+from components.watchlist import get_watchlist, add_to_watchlist, remove_from_watchlist
 
 
 def render_tab_type_c(daily_df: pd.DataFrame, date_str: str):
@@ -129,7 +130,53 @@ def _render_breakout_list(daily_df: pd.DataFrame, date_str: str):
         display_cols.append("외국인합계_5일")
     display_cols = [c for c in display_cols if c in top.columns]
 
-    st.dataframe(top[display_cols].head(15), use_container_width=True)
+    top15 = top.head(15)
+    top15_reset = top15.reset_index()
+    top15_reset = top15_reset.rename(columns={top15_reset.columns[0]: "티커"})
+    disp = top15_reset[["티커"] + display_cols].copy()
+    if "거래대금" in disp.columns:
+        disp["거래대금"] = (disp["거래대금"] / 1e8).round(1)
+    if "기관합계_5일" in disp.columns:
+        disp["기관합계_5일"] = (disp["기관합계_5일"] / 1e8).round(1)
+    if "외국인합계_5일" in disp.columns:
+        disp["외국인합계_5일"] = (disp["외국인합계_5일"] / 1e8).round(1)
+    wl_tickers_before = {e["ticker"] for e in get_watchlist()}
+    disp.insert(0, "⭐", disp["티커"].isin(wl_tickers_before))
+    non_wl_cols = [c for c in disp.columns if c != "⭐"]
+    edited = st.data_editor(
+        disp,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "⭐": st.column_config.CheckboxColumn("⭐ 관심", width="small"),
+            "등락률": st.column_config.NumberColumn(format="%.2f%%"),
+            "거래대금": st.column_config.NumberColumn(format="%.1f억"),
+            "기관합계_5일": st.column_config.NumberColumn(format="%.1f억"),
+            "외국인합계_5일": st.column_config.NumberColumn(format="%.1f억"),
+        },
+        disabled=non_wl_cols,
+    )
+    changed = False
+    for _, r in edited.iterrows():
+        tkr = str(r["티커"])
+        was_in = tkr in wl_tickers_before
+        is_in = bool(r["⭐"])
+        if is_in and not was_in:
+            orig = top15_reset[top15_reset["티커"] == tkr]
+            if not orig.empty:
+                add_to_watchlist(
+                    ticker=tkr,
+                    name=str(orig.iloc[0].get("종목명", tkr)),
+                    price=float(orig.iloc[0].get("종가", 0)),
+                    sector=str(orig.iloc[0].get("업종", "")),
+                    market=str(orig.iloc[0].get("시장", "")),
+                )
+                changed = True
+        elif not is_in and was_in:
+            remove_from_watchlist(tkr)
+            changed = True
+    if changed:
+        st.rerun()
 
     # 개별 종목 상세 확인
     st.markdown("#### 🔍 개별 종목 돌파 분석")
