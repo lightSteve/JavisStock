@@ -225,7 +225,8 @@ def _render_sector_stock_detail(
                     remove_from_watchlist(str(ticker))
                 else:
                     add_to_watchlist(ticker=str(ticker), name=str(name), price=float(price),
-                                     sector=str(srow.get("업종", "")), market=str(srow.get("시장", "")))
+                                     sector=str(srow.get("업종", "")), market=str(srow.get("시장", "")),
+                                     source="📊 D:섹터상위")
                 st.rerun()
 
 
@@ -316,7 +317,8 @@ def _render_sector_scanner(daily_df: pd.DataFrame, sector_summary: pd.DataFrame,
                         remove_from_watchlist(str(ticker))
                     else:
                         add_to_watchlist(ticker=str(ticker), name=str(name), price=float(price),
-                                         sector=str(row.get("업종", "")), market=str(row.get("시장", "")))
+                                         sector=str(row.get("업종", "")), market=str(row.get("시장", "")),
+                                         source="📊 D:급락스캐너")
                     st.rerun()
 
             with st.expander(f"📰 {name} 뉴스"):
@@ -394,7 +396,8 @@ def _render_sector_recovery(daily_df: pd.DataFrame, sector_summary: pd.DataFrame
                         remove_from_watchlist(str(ticker))
                     else:
                         add_to_watchlist(ticker=str(ticker), name=str(name), price=float(price),
-                                         sector=str(row.get("업종", "")), market=str(row.get("시장", "")))
+                                         sector=str(row.get("업종", "")), market=str(row.get("시장", "")),
+                                         source="📊 D:회복발굴")
                     st.rerun()
 
     # 개별 종목 상세 분석 (선택형)

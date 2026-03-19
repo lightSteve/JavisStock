@@ -247,6 +247,7 @@ def _render_result_cards(results: list):
                         name=str(res["name"]),
                         price=float(res["price"]),
                         sector=str(res["sector"]),
+                        source="📋 전략추천",
                     )
                 st.rerun()
 

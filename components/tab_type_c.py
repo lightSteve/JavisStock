@@ -170,6 +170,7 @@ def _render_breakout_list(daily_df: pd.DataFrame, date_str: str):
                     price=float(orig.iloc[0].get("종가", 0)),
                     sector=str(orig.iloc[0].get("업종", "")),
                     market=str(orig.iloc[0].get("시장", "")),
+                    source="📈 C:돌파매매",
                 )
                 changed = True
         elif not is_in and was_in:

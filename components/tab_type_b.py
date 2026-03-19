@@ -107,6 +107,7 @@ def _render_spike_candidates(daily_df: pd.DataFrame):
                         price=float(orig.iloc[0].get("종가", 0)),
                         sector=str(orig.iloc[0].get("업종", "")),
                         market=str(orig.iloc[0].get("시장", "")),
+                        source="📰 B:뉴스스파이크",
                     )
                     changed = True
             elif not is_in and was_in:

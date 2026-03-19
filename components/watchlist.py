@@ -57,6 +57,7 @@ def add_to_watchlist(
     price: float,
     sector: str = "",
     market: str = "",
+    source: str = "",
 ) -> bool:
     """관심종목 추가. 이미 존재하면 False 반환."""
     entries = get_watchlist()
@@ -69,6 +70,7 @@ def add_to_watchlist(
         "added_date": datetime.date.today().isoformat(),
         "sector": sector,
         "market": market,
+        "source": source,
     }
     entries = [entry] + entries  # 최신 항목이 위에 오도록
     st.session_state[_session_key()] = entries
@@ -90,6 +92,33 @@ def remove_from_watchlist(ticker: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────
 # 카드 렌더링
 # ─────────────────────────────────────────────────────────────────────
+
+def _source_badge_html(source: str) -> str:
+    """출처(source) 배지 HTML 반환."""
+    if not source:
+        return ""
+    if "AI Top3" in source or "스마트" in source:
+        color = "#1d4ed8"
+    elif "전략추천" in source:
+        color = "#0d9488"
+    elif "A:" in source or "테마" in source:
+        color = "#dc2626"
+    elif "B:" in source or "뉴스" in source:
+        color = "#ea580c"
+    elif "C:" in source or "돌파" in source:
+        color = "#d97706"
+    elif "D:" in source or "섹터" in source or "급락" in source or "회복" in source:
+        color = "#7c3aed"
+    elif "발굴" in source:
+        color = "#e11d48"
+    else:
+        color = "#64748b"
+    return (
+        f'<span style="background:{color}; color:white; padding:1px 8px;'
+        f' border-radius:9px; font-size:0.62em; font-weight:700;">'
+        f'{source}</span>'
+    )
+
 
 def _render_watchlist_card(col, row: dict):
     ticker = row["ticker"]
@@ -115,6 +144,7 @@ def _render_watchlist_card(col, row: dict):
         f' border-radius:5px; font-size:0.65em; font-weight:700;">'
         f'{row["market"]}</span> '
     ) if row["market"] else ""
+    src_badge = _source_badge_html(row.get("source", ""))
 
     card_html = (
         f'<div style="background:#ffffff; border-radius:12px; padding:14px;'
@@ -128,7 +158,8 @@ def _render_watchlist_card(col, row: dict):
         f'<div style="font-size:1.0em; font-weight:700; color:#1e293b; margin:4px 0 2px;">'
         f'{row["name"]}'
         f'</div>'
-        f'<div style="font-size:0.72em; color:#94a3b8; margin-bottom:8px;">{row["sector"]}</div>'
+        f'<div style="font-size:0.72em; color:#94a3b8; margin-bottom:4px;">{row["sector"]}</div>'
+        f'<div style="margin-bottom:8px;">{src_badge}</div>'
         f'<div style="display:flex; justify-content:space-between; align-items:flex-end;">'
         f'  <div>'
         f'    <div style="font-size:0.62em; color:#94a3b8;">추가 당시 가격</div>'
@@ -194,6 +225,7 @@ def render_watchlist_section(daily_df: pd.DataFrame):
                 "name": item.get("name", ticker),
                 "market": item.get("market", ""),
                 "sector": item.get("sector", ""),
+                "source": item.get("source", ""),
                 "added_date": item.get("added_date", ""),
                 "added_price": added_price,
                 "current_price": current_price,

@@ -353,6 +353,7 @@ def render_smart_top3(daily_df: pd.DataFrame, date: str, precomputed: list = Non
                         price=float(res["price"]),
                         sector=str(res["sector"]),
                         market=str(res.get("market", "")),
+                        source="🏆 AI Top3",
                     )
                 st.rerun()
 

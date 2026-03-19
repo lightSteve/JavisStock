@@ -106,6 +106,7 @@ def _stock_card_grid(df: pd.DataFrame, badge: str, color: str):
                         price=float(price),
                         sector=str(sector),
                         market=str(market),
+                        source="🏆 A:테마추격",
                     )
                 st.rerun()
 
@@ -183,5 +184,5 @@ def _render_pair_signals(daily_df: pd.DataFrame):
                     if in_wl:
                         remove_from_watchlist(follower_ticker)
                     else:
-                        add_to_watchlist(ticker=follower_ticker, name=follower_name, price=0.0)
+                        add_to_watchlist(ticker=follower_ticker, name=follower_name, price=0.0, source="🏆 A:짝꾹후발주")
                     st.rerun()

@@ -118,6 +118,7 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
                         price=float(price),
                         sector=str(sector),
                         market=str(market),
+                        source="🔥 발굴:수급TOP",
                     )
                 st.rerun()
 
@@ -217,6 +218,7 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
                     price=float(sr.get("종가", 0)),
                     sector=str(sr.get("업종", "")),
                     market=str(sr.get("시장", "")),
+                    source="🔥 발굴:종목테이블",
                 )
                 changed = True
         elif not is_in_wl and was_in_wl:
