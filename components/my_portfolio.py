@@ -126,7 +126,12 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
 
     username = _get_username()
     if username == "default":
-        st.warning("⚠️ 사이드바에서 **닉네임**을 입력하면 개인별로 보유종목이 저장됩니다.")
+        st.warning(
+            "⚠️ **로그인이 필요합니다.**  \n"
+            "왼쪽 사이드바(🔐 로그인 패널)에서 로그인하면 이전에 저장한 보유종목을 불러올 수 있습니다.  \n"
+            "페이지를 새로고침하거나 재배포 후에는 다시 로그인해주세요."
+        )
+        return
     else:
         st.caption(f"👤 **{username}** 님의 포트폴리오")
 
