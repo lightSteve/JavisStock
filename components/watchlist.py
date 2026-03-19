@@ -200,91 +200,96 @@ def _render_watchlist_card(col, row: dict):
 # 메인 렌더링
 # ─────────────────────────────────────────────────────────────────────
 
-def render_watchlist_section(daily_df: pd.DataFrame):
-    """관심종목 수익률 현황 섹션 렌더링 (관심종목 없으면 숨김)."""
-    # 로그인 안 된 경우: 항상 expander를 보여주고 로그인 안내
+def render_watchlist_section(daily_df: pd.DataFrame, standalone: bool = False):
+    """관심종목 수익률 현황 섹션 렌더링.
+
+    standalone=True 이면 전용 탭으로 사용 — expander 없이 풀 화면으로 렌더링.
+    standalone=False(기본) 이면 인라인 expander로 렌더링.
+    """
+    st.markdown("## ⭐ 관심종목")
+
+    # 로그인 안 된 경우
     if _get_username() == "default":
-        with st.expander("⭐ 관심종목 수익률 현황", expanded=False):
-            st.warning(
-                "⚠️ **로그인이 필요합니다.**  \n"
-                "왼쪽 사이드바(🔐 로그인 패널)에서 로그인하면 이전에 저장한 관심종목을 불러올 수 있습니다.  \n"
-                "페이지를 새로고침하거나 재배포 후에는 다시 로그인해주세요."
-            )
+        st.warning(
+            "⚠️ **로그인이 필요합니다.**  \n"
+            "왼쪽 사이드바(🔐 로그인 패널)에서 로그인하면 이전에 저장한 관심종목을 불러올 수 있습니다.  \n"
+            "페이지를 새로고침하거나 재배포 후에는 다시 로그인해주세요."
+        )
         return
 
     items = get_watchlist()
     if not items:
+        st.info("💡 발굴·트레이더 탭에서 ☆ 버튼으로 관심종목을 추가하면 여기서 수익률을 한눈에 확인할 수 있습니다.")
         return
 
-    with st.expander(f"⭐ 관심종목 수익률 현황  ({len(items)}개)", expanded=True):
-        # 수익률 계산
-        rows = []
-        for item in items:
-            ticker = item["ticker"]
-            added_price = float(item.get("added_price", 0))
-            if added_price <= 0:
-                continue
+    # 수익률 계산
+    rows = []
+    for item in items:
+        ticker = item["ticker"]
+        added_price = float(item.get("added_price", 0))
+        if added_price <= 0:
+            continue
 
-            if not daily_df.empty and ticker in daily_df.index:
-                current_price = float(daily_df.loc[ticker].get("종가", added_price))
-            else:
-                current_price = added_price  # 시세 정보 없을 때 원가 유지
+        if not daily_df.empty and ticker in daily_df.index:
+            current_price = float(daily_df.loc[ticker].get("종가", added_price))
+        else:
+            current_price = added_price  # 시세 정보 없을 때 원가 유지
 
-            gain = current_price - added_price
-            gain_pct = gain / added_price * 100 if added_price > 0 else 0.0
+        gain = current_price - added_price
+        gain_pct = gain / added_price * 100 if added_price > 0 else 0.0
 
-            rows.append({
-                "ticker": ticker,
-                "name": item.get("name", ticker),
-                "market": item.get("market", ""),
-                "sector": item.get("sector", ""),
-                "source": item.get("source", ""),
-                "added_date": item.get("added_date", ""),
-                "added_price": added_price,
-                "current_price": current_price,
-                "gain": gain,
-                "gain_pct": gain_pct,
-            })
+        rows.append({
+            "ticker": ticker,
+            "name": item.get("name", ticker),
+            "market": item.get("market", ""),
+            "sector": item.get("sector", ""),
+            "source": item.get("source", ""),
+            "added_date": item.get("added_date", ""),
+            "added_price": added_price,
+            "current_price": current_price,
+            "gain": gain,
+            "gain_pct": gain_pct,
+        })
 
-        if not rows:
-            st.info("관심종목이 없습니다.")
-            return
+    if not rows:
+        st.info("관심종목이 없습니다.")
+        return
 
-        # 수익률 요약 (상단 헤더)
-        positive = sum(1 for r in rows if r["gain_pct"] > 0)
-        negative = sum(1 for r in rows if r["gain_pct"] < 0)
-        avg_pct = sum(r["gain_pct"] for r in rows) / len(rows)
-        avg_color = "#dc2626" if avg_pct > 0 else "#2563eb" if avg_pct < 0 else "#64748b"
-        avg_arrow = "▲" if avg_pct > 0 else "▼" if avg_pct < 0 else "−"
+    # 수익률 요약 (상단 헤더)
+    positive = sum(1 for r in rows if r["gain_pct"] > 0)
+    negative = sum(1 for r in rows if r["gain_pct"] < 0)
+    avg_pct = sum(r["gain_pct"] for r in rows) / len(rows)
+    avg_color = "#dc2626" if avg_pct > 0 else "#2563eb" if avg_pct < 0 else "#64748b"
+    avg_arrow = "▲" if avg_pct > 0 else "▼" if avg_pct < 0 else "−"
 
-        summary_html = (
-            f'<div style="display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap;">'
-            f'  <div style="background:#f8fafc; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #e2e8f0;">'
-            f'    <div style="font-size:0.68em; color:#64748b;">관심종목</div>'
-            f'    <div style="font-size:1.4em; font-weight:800; color:#1e293b;">{len(rows)}개</div>'
-            f'  </div>'
-            f'  <div style="background:#fef2f2; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #fecaca;">'
-            f'    <div style="font-size:0.68em; color:#64748b;">상승</div>'
-            f'    <div style="font-size:1.4em; font-weight:800; color:#dc2626;">{positive}개</div>'
-            f'  </div>'
-            f'  <div style="background:#eff6ff; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #bfdbfe;">'
-            f'    <div style="font-size:0.68em; color:#64748b;">하락</div>'
-            f'    <div style="font-size:1.4em; font-weight:800; color:#2563eb;">{negative}개</div>'
-            f'  </div>'
-            f'  <div style="background:#f8fafc; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #e2e8f0;">'
-            f'    <div style="font-size:0.68em; color:#64748b;">평균 수익률</div>'
-            f'    <div style="font-size:1.4em; font-weight:800; color:{avg_color};">'
-            f'      {avg_arrow} {abs(avg_pct):.2f}%'
-            f'    </div>'
-            f'  </div>'
-            f'</div>'
-        )
-        st.markdown(summary_html, unsafe_allow_html=True)
+    summary_html = (
+        f'<div style="display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap;">'
+        f'  <div style="background:#f8fafc; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #e2e8f0;">'
+        f'    <div style="font-size:0.68em; color:#64748b;">관심종목</div>'
+        f'    <div style="font-size:1.4em; font-weight:800; color:#1e293b;">{len(rows)}개</div>'
+        f'  </div>'
+        f'  <div style="background:#fef2f2; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #fecaca;">'
+        f'    <div style="font-size:0.68em; color:#64748b;">상승</div>'
+        f'    <div style="font-size:1.4em; font-weight:800; color:#dc2626;">{positive}개</div>'
+        f'  </div>'
+        f'  <div style="background:#eff6ff; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #bfdbfe;">'
+        f'    <div style="font-size:0.68em; color:#64748b;">하락</div>'
+        f'    <div style="font-size:1.4em; font-weight:800; color:#2563eb;">{negative}개</div>'
+        f'  </div>'
+        f'  <div style="background:#f8fafc; border-radius:10px; padding:10px 18px; text-align:center; border:1px solid #e2e8f0;">'
+        f'    <div style="font-size:0.68em; color:#64748b;">평균 수익률</div>'
+        f'    <div style="font-size:1.4em; font-weight:800; color:{avg_color};">'
+        f'      {avg_arrow} {abs(avg_pct):.2f}%'
+        f'    </div>'
+        f'  </div>'
+        f'</div>'
+    )
+    st.markdown(summary_html, unsafe_allow_html=True)
 
-        # 카드 그리드 (3열)
-        cols_per_row = 3
-        for i in range(0, len(rows), cols_per_row):
-            cols = st.columns(cols_per_row)
-            for j in range(cols_per_row):
-                if i + j < len(rows):
-                    _render_watchlist_card(cols[j], rows[i + j])
+    # 카드 그리드 (3열)
+    cols_per_row = 3
+    for i in range(0, len(rows), cols_per_row):
+        cols = st.columns(cols_per_row)
+        for j in range(cols_per_row):
+            if i + j < len(rows):
+                _render_watchlist_card(cols[j], rows[i + j])

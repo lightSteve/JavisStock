@@ -518,9 +518,9 @@ if st.session_state.get("load_data"):
                 st.info("하락 종목이 없습니다.")
 
     # ===================================================================
-    # 탭 구성: 수급 / 섹터 / 상승종목 / 발굴 / 트레이더(5유형) / 보유종목 / 일지 / 상세
+    # 탭 구성: 수급 / 섹터 / 상승종목 / 발굴 / 트레이더(5유형) / 보유종목 / 일지 / 관심종목 / 상세
     # ===================================================================
-    tab0, tab1, tab2, tab3, tab_trader, tab_portfolio, tab_journal, tab4 = st.tabs([
+    tab0, tab1, tab2, tab3, tab_trader, tab_portfolio, tab_journal, tab_watchlist, tab4 = st.tabs([
         "🏛️ 수급",
         "🗺️ 섹터",
         "📊 상승종목",
@@ -528,6 +528,7 @@ if st.session_state.get("load_data"):
         "🎯 트레이더",
         "💼 보유종목",
         "📓 매매일지",
+        "⭐ 관심종목",
         "📈 상세",
     ])
 
@@ -560,9 +561,6 @@ if st.session_state.get("load_data"):
             _disc_price_ts is None
             or (_disc_now - _disc_price_ts).total_seconds() > 3600  # 1시간 경과 시 자동 갱신
         )
-
-        # ── 관심종목 수익률 현황 (항목 있을 때만 표시) ──
-        render_watchlist_section(daily_df)
 
         # ── AI 스마트 Top 3 (멀티팩터 점수 기반) ──
         _t3_col1, _t3_col2 = st.columns([8, 1])
@@ -774,6 +772,10 @@ if st.session_state.get("load_data"):
     # --- 탭 매매일지 ---
     with tab_journal:
         render_trading_journal(daily_df, date_str)
+
+    # --- 탭 관심종목 ---
+    with tab_watchlist:
+        render_watchlist_section(daily_df)
 
     # --- 탭 4: 종목 상세 (공통 상세 + 메모/플랜 포함) ---
     with tab4:
