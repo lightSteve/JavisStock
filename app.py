@@ -22,7 +22,6 @@ from data.fetcher import (
     list_available_snapshots,
     smart_load_daily_data,
     get_index_ohlcv,
-    get_realtime_prices_bulk,
 )
 from data.scheduler import (
     start_scheduler,
@@ -552,73 +551,71 @@ if st.session_state.get("load_data"):
     # --- 탭 3: 오늘의 발굴 종목 ---
     with tab3:
         import copy as _copy
-        import datetime as _dt_disc
+        from data.price_cache import price_cache as _pc
 
-        # ── 공통: 현재가 갱신 필요 여부 (TTL 1시간) ──
-        _disc_now = _dt_disc.datetime.now()
-        _disc_price_ts = st.session_state.get("_discovery_price_ts")
-        _disc_need_refresh = (
-            _disc_price_ts is None
-            or (_disc_now - _disc_price_ts).total_seconds() > 3600  # 1시간 경과 시 자동 갱신
-        )
-
-        # ── AI 스마트 Top 3 (멀티팩터 점수 기반) ──
+        # ── 재분석 버튼 ──────────────────────────────────────────────────
         _t3_col1, _t3_col2 = st.columns([8, 1])
         with _t3_col2:
             if st.button("🔄", help="최신 데이터로 재분석 + 현재가 갱신", key="refresh_smart_top3"):
                 from data.scheduler import invalidate_analysis
                 invalidate_analysis()
-                # 현재가 갱신 강제 트리거
-                st.session_state.pop("_discovery_price_ts", None)
                 st.rerun()
 
         _cached_top3 = get_cached_smart_top3(date_str)
+        _cached_screened = get_cached_screened(date_str)
 
-        # ── TOP 3 현재가 갱신 (1시간 TTL) ──
+        # ── 추적 티커 수집 + 일괄 현재가 갱신 ─────────────────────────
+        # price_cache.ensure_fresh() 가 TTL 이내 티커는 API 호출 생략 → 중복 방지
+        _tracked: set = set()
+        if _cached_top3:
+            _tracked.update(r["ticker"] for r in _cached_top3)
+        if not daily_df.empty and "기관합계_5일" in daily_df.columns and "외국인합계_5일" in daily_df.columns:
+            _sup = daily_df["기관합계_5일"].fillna(0) + daily_df["외국인합계_5일"].fillna(0)
+            _tracked.update(_sup.nlargest(top_n).index.tolist())
+        if _cached_screened is not None and not _cached_screened.empty:
+            _tracked.update(_cached_screened.index.tolist())
+
+        if _pc.needs_refresh(list(_tracked)):
+            with st.spinner("📡 현재가 갱신 중..."):
+                _pc.ensure_fresh(list(_tracked))
+
+        # ── daily_df 에 캐시 최신 가격 일괄 반영 ──────────────────────
+        # 이 시점부터 daily_df 의 해당 티커 가격은 price_cache 기준으로 통일됩니다.
+        _pc.apply_to_dataframe(daily_df, list(_tracked))
+        st.session_state["daily_df"] = daily_df
+
+        # 갱신 시각 표시
+        _bulk_ts = _pc.last_bulk_updated()
+        if _bulk_ts:
+            st.caption(f"💹 현재가 마지막 갱신: {_bulk_ts.strftime('%H:%M')} "
+                       f"({'장중 5분' if True else '장외 1시간'} TTL · KIS/Naver 자동 선택)")
+
+        # ── AI 스마트 Top 3 ────────────────────────────────────────────
+        # daily_df 가 최신 가격이므로, precomputed 의 price 도 캐시 값으로 보정
         _top3_for_display = _copy.deepcopy(_cached_top3) if _cached_top3 else []
-        if _top3_for_display and _disc_need_refresh:
-            _top3_tickers = [r["ticker"] for r in _top3_for_display]
-            with st.spinner("📡 TOP 3 현재가 갱신 중..."):
-                _top3_fresh = get_realtime_prices_bulk(_top3_tickers)
-            if _top3_fresh:
-                for _r in _top3_for_display:
-                    _fi = _top3_fresh.get(_r["ticker"])
-                    if _fi and _fi["price"] > 0:
-                        _r["price"] = _fi["price"]
-                        _r["change"] = _fi["change_rate"]
-                # timestamp는 screened와 공유 — screened 갱신 후 최종 저장
-                st.session_state["_discovery_price_ts"] = _disc_now
+        for _r in _top3_for_display:
+            _info = _pc.get(_r["ticker"])
+            if _info and _info.get("price", 0) > 0:
+                _r["price"] = _info["price"]
+                _r["change"] = _info["change_rate"]
 
         render_smart_top3(daily_df, date_str, precomputed=_top3_for_display or None)
 
         st.markdown("---")
 
-        # ── 수급 TOP 카드 (기존) ──
+        # ── 수급 TOP 카드 (daily_df 이미 최신 가격) ────────────────────
         render_top_cards(daily_df, top_n=5)
 
         st.markdown("---")
 
-        # 수급 필터링 → 사전 분석 결과 우선 사용
-        _cached_screened = get_cached_screened(date_str)
+        # ── 발굴 테이블 ────────────────────────────────────────────────
         if _cached_screened is not None and not _cached_screened.empty:
             screened = _cached_screened.copy()
             st.caption("⚡ 기술적 지표: 사전 분석 데이터 사용")
 
-            # ── 현재가 실시간 갱신 ──
-            if _disc_need_refresh:
-                with st.spinner("📡 발굴 종목 현재가 갱신 중..."):
-                    _fresh = get_realtime_prices_bulk(screened.index.tolist())
-                if _fresh:
-                    for _ft, _fi in _fresh.items():
-                        if _ft in screened.index:
-                            screened.at[_ft, "종가"] = _fi["price"]
-                            screened.at[_ft, "등락률"] = _fi["change_rate"]
-                st.session_state["_discovery_price_ts"] = _disc_now
+            # price_cache 최신 가격 반영 (daily_df 와 동일한 소스)
+            _pc.apply_to_dataframe(screened, _cached_screened.index.tolist())
 
-            if _disc_price_ts:
-                st.caption(f"💹 현재가 마지막 갱신: {_disc_price_ts.strftime('%H:%M')} (1시간마다 자동 갱신)")
-
-            # 기술적 필터 적용
             screened = apply_technical_filters(
                 screened,
                 chart_filter=chart_filter,
@@ -632,10 +629,9 @@ if st.session_state.get("load_data"):
             if selected_ticker:
                 st.session_state["selected_ticker"] = selected_ticker
         else:
-            # 캐시 없으면 기존 방식으로 실시간 분석
+            # 사전 분석 캐시 없으면 실시간 분석
             supply_filtered = screen_by_supply(daily_df)
 
-            # Smart Top3 티커가 빠졌으면 강제 포함
             if _cached_top3:
                 _top3_tickers = [r["ticker"] for r in _cached_top3]
                 _missing = [
@@ -652,22 +648,11 @@ if st.session_state.get("load_data"):
                     supply_filtered = pd.concat([_extra, supply_filtered]) if not supply_filtered.empty else _extra
 
             if not supply_filtered.empty:
-                with st.spinner("📊 차트 + 기술 지표 분석 중... (수급 상위 종목 대상)"):
+                with st.spinner("📊 차트 + 기술 지표 분석 중..."):
                     screened = add_chart_status(supply_filtered.head(top_n * 2), date_str)
 
-                # ── 현재가 실시간 갱신 ──
-                if _disc_need_refresh:
-                    with st.spinner("📡 발굴 종목 현재가 갱신 중..."):
-                        _fresh = get_realtime_prices_bulk(screened.index.tolist())
-                    if _fresh:
-                        for _ft, _fi in _fresh.items():
-                            if _ft in screened.index:
-                                screened.at[_ft, "종가"] = _fi["price"]
-                                screened.at[_ft, "등락률"] = _fi["change_rate"]
-                    st.session_state["_discovery_price_ts"] = _disc_now
-
-                if _disc_price_ts:
-                    st.caption(f"💹 현재가 마지막 갱신: {_disc_price_ts.strftime('%H:%M')} (1시간마다 자동 갱신)")
+                # price_cache 최신 가격 반영
+                _pc.apply_to_dataframe(screened, screened.index.tolist())
 
                 screened = apply_technical_filters(
                     screened,

@@ -1,11 +1,57 @@
 """
-데이터 수집 모듈 (Data Fetcher) — Naver Finance API 기반
-KRX 데이터 포탈이 2026년부터 로그인을 요구하므로 Naver Finance API로 전환.
+데이터 수집 모듈 (Data Fetcher)
+══════════════════════════════════════════════════════════════════════════════
+■ Naver API (KRX 로그인 요구 이후 전환한 주 데이터 소스)
 
-주요 데이터 소스:
-- Naver 모바일 API  : 전종목 시세, 개별 종목 OHLCV, 투자자 동향
-- Naver Finance HTML : 업종(섹터) 매핑
-- 로컬 CSV 스냅샷    : 수급 데이터 일일 누적 (5일 제한 극복)
+  [전종목 벌크]
+  - get_market_ohlcv()          → Naver 전종목 시가총액순 시세
+                                   URL: /api/stocks/marketValue/{market}
+  - get_all_tickers()           → 전종목 티커·종목명
+  - get_accumulated_investor_trading() → 수급 상위 200종목 기관/외국인/개인 5일 누적
+                                   URL: /api/stock/{ticker}/integration
+
+  [개별 종목]
+  - get_stock_ohlcv_history()   → 일봉 히스토리 (정확한 OHLCV)
+                                   URL: /api/stock/{ticker}/price
+  - get_investor_trend_individual() → 5일 투자자 동향
+                                   URL: /api/stock/{ticker}/integration
+  - get_stock_fundamentals()    → PER/EPS/분기 실적
+                                   URL: /api/stock/{ticker}/finance/quarter
+  - get_realtime_price()        → 개별 종목 현재가 (장중)
+                                   URL: /api/stock/{ticker}/basic
+  - get_market_investor_trend() → 시장 전체 기관/외국인 순매매 (장중)
+                                   URL: /api/index/{market}/trend
+
+  [섹터·지수]
+  - get_sector_info()           → Naver Finance HTML 스크래핑 (업종 매핑)
+  - get_index_ohlcv()           → KOSPI/KOSDAQ 지수 일봉
+
+  [기타]
+  - get_program_trading_top()   → 프로그램 매매 상위 종목
+  - get_theme_list()            → 테마 목록
+  - get_stock_news_list()       → 종목별 뉴스
+  - detect_sharp_drop_stocks()  → 급락 종목 감지
+  - detect_volume_spike_stocks() → 거래량 급증 종목 감지
+
+■ KIS (한국투자증권) Open API  ← is_kis_configured() True 시에만 사용
+
+  - get_kis_stock_investor()    → 당일 기관/외국인/개인 순매수 (장중 실시간)
+                                   TR: FHKST01010900
+  - get_kis_realtime_price()    → 현재가·등락률 (30초 캐시)
+                                   TR: FHKST01010100
+  - get_kis_intraday_supply()   → 외국인/기관 장중 가집계 (KRX 집계 주기)
+                                   TR: FHPTJ04400000
+
+■ 로컬 CSV 스냅샷
+  - smart_load_daily_data()     → 장마감 후 스냅샷 우선 로드 (초고속)
+  - save_daily_snapshot()       → 전종목 데이터 CSV 저장
+  - load_daily_snapshot()       → CSV 로드
+
+■ 현재가 캐시 계층
+  data/price_cache.py 의 PriceCache 가 전 컴포넌트 공유 싱글톤으로 동작합니다.
+  get_realtime_prices_bulk() 는 내부적으로 price_cache 를 통해
+  TTL 이내 캐시 히트 시 API 호출을 생략합니다.
+══════════════════════════════════════════════════════════════════════════════
 """
 
 import datetime
@@ -325,17 +371,15 @@ def get_realtime_price(ticker: str) -> dict:
 
 def get_realtime_prices_bulk(tickers: list) -> dict:
     """여러 종목의 실시간 현재가/등락률을 일괄 조회합니다.
-    반환: {ticker: {"price": int, "change_rate": float, "name": str}}
-    API 부하 방지를 위해 0.1초 간격으로 순차 조회합니다.
+
+    내부적으로 price_cache 를 통해 TTL 이내 캐시를 우선 사용하므로
+    중복 API 호출이 자동으로 방지됩니다.
+
+    소스 우선순위: KIS (장중, 설정 시) → Naver basic
+    반환: {ticker: {"price": int, "change_rate": float, "name": str, "source": str}}
     """
-    import time as _time
-    result = {}
-    for ticker in tickers:
-        info = get_realtime_price(ticker)
-        if info["price"] > 0:
-            result[ticker] = info
-        _time.sleep(0.1)
-    return result
+    from data.price_cache import price_cache
+    return price_cache.ensure_fresh(tickers)
 
 
 # ---------------------------------------------------------------------------
@@ -1379,6 +1423,14 @@ def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5,
     if _is_market_closed(date):
         if "등락률" in ohlcv.columns and (ohlcv["등락률"] != 0).any():
             _save_full_snapshot(ohlcv, date, market)
+
+    # 5) price_cache 일괄 갱신 — 스케줄러/초기 로드 후 전 컴포넌트 동일 가격 사용
+    try:
+        source = "snapshot" if (_is_market_closed(date) and not force_refresh) else "naver_bulk"
+        from data.price_cache import price_cache as _pc
+        _pc.update_from_dataframe(ohlcv, source=source)
+    except Exception:
+        pass  # 캐시 갱신 실패는 치명적이지 않으므로 무시
 
     return ohlcv
 

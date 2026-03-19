@@ -231,8 +231,10 @@ def render_watchlist_section(daily_df: pd.DataFrame, standalone: bool = False):
             continue
 
         if not daily_df.empty and ticker in daily_df.index:
-            current_price = float(daily_df.loc[ticker].get("종가", added_price))
+            row_data = daily_df.loc[ticker]
+            current_price = float(row_data.get("종가", added_price))
         else:
+            row_data = pd.Series(dtype=object)
             current_price = added_price  # 시세 정보 없을 때 원가 유지
 
         gain = current_price - added_price
@@ -249,6 +251,7 @@ def render_watchlist_section(daily_df: pd.DataFrame, standalone: bool = False):
             "current_price": current_price,
             "gain": gain,
             "gain_pct": gain_pct,
+            "_row_data": row_data,
         })
 
     if not rows:
@@ -286,10 +289,164 @@ def render_watchlist_section(daily_df: pd.DataFrame, standalone: bool = False):
     )
     st.markdown(summary_html, unsafe_allow_html=True)
 
-    # 카드 그리드 (3열)
-    cols_per_row = 3
-    for i in range(0, len(rows), cols_per_row):
-        cols = st.columns(cols_per_row)
-        for j in range(cols_per_row):
-            if i + j < len(rows):
-                _render_watchlist_card(cols[j], rows[i + j])
+    # 탭: 수익률 현황 / 수급 브리핑
+    tab_profit, tab_supply = st.tabs(["💰 수익률 현황", "🏛️ 수급 브리핑"])
+
+    with tab_profit:
+        # 카드 그리드 (3열)
+        cols_per_row = 3
+        for i in range(0, len(rows), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j in range(cols_per_row):
+                if i + j < len(rows):
+                    _render_watchlist_card(cols[j], rows[i + j])
+
+    with tab_supply:
+        _render_supply_briefing(rows, daily_df)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 수급 브리핑
+# ─────────────────────────────────────────────────────────────────────
+
+def _render_supply_briefing(rows: list, daily_df: pd.DataFrame):
+    """관심종목 수급 브리핑 — 기관·외국인·개인 순매수 현황."""
+    st.caption("5일 누적 기관·외국인·개인 순매수 기반 수급 동향")
+
+    has_supply = (
+        not daily_df.empty
+        and "기관합계_5일" in daily_df.columns
+        and "외국인합계_5일" in daily_df.columns
+    )
+
+    if not has_supply:
+        st.warning("수급 데이터가 없습니다. 데이터를 다시 로드해 주세요.")
+        return
+
+    supply_rows = []
+    for r in rows:
+        ticker = r["ticker"]
+        if ticker not in daily_df.index:
+            continue
+        d = daily_df.loc[ticker]
+        inst = float(d.get("기관합계_5일", 0) or 0)
+        frgn = float(d.get("외국인합계_5일", 0) or 0)
+        indv = float(d.get("개인_5일", 0) or 0) if "개인_5일" in daily_df.columns else 0.0
+        supply_rows.append({
+            "ticker": ticker,
+            "name": r["name"],
+            "sector": r["sector"],
+            "gain_pct": r["gain_pct"],
+            "current_price": r["current_price"],
+            "inst": inst,
+            "frgn": frgn,
+            "indv": indv,
+            "both": inst > 0 and frgn > 0,
+        })
+
+    if not supply_rows:
+        st.info("관심종목 중 수급 데이터가 있는 종목이 없습니다.")
+        return
+
+    # ── 요약 메트릭 ──────────────────────────────────────────────
+    inst_buy_n = sum(1 for s in supply_rows if s["inst"] > 0)
+    frgn_buy_n = sum(1 for s in supply_rows if s["frgn"] > 0)
+    both_n = sum(1 for s in supply_rows if s["both"])
+    total_inst = sum(s["inst"] for s in supply_rows) / 1e8
+    total_frgn = sum(s["frgn"] for s in supply_rows) / 1e8
+
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+    mc1.metric("🏛️ 기관 순매수", f"{inst_buy_n}개")
+    mc2.metric("기관 합계", f"{total_inst:+,.0f}억")
+    mc3.metric("🌍 외국인 순매수", f"{frgn_buy_n}개")
+    mc4.metric("외국인 합계", f"{total_frgn:+,.0f}억")
+    mc5.metric("🔥 쌍끌이", f"{both_n}개")
+
+    st.markdown("---")
+
+    # ── 수급 카드 ────────────────────────────────────────────────
+    # 쌍끌이 → 기관 강도 → 외국인 강도 순 정렬
+    supply_rows.sort(key=lambda x: (-(x["inst"] + x["frgn"])))
+
+    for s in supply_rows:
+        inst_억 = s["inst"] / 1e8
+        frgn_억 = s["frgn"] / 1e8
+        indv_억 = s["indv"] / 1e8
+
+        inst_color = "#2563eb" if s["inst"] >= 0 else "#94a3b8"
+        frgn_color = "#ea580c" if s["frgn"] >= 0 else "#94a3b8"
+        indv_color = "#dc2626" if s["indv"] > 0 else "#2563eb" if s["indv"] < 0 else "#94a3b8"
+
+        inst_sign = "+" if inst_억 > 0 else ""
+        frgn_sign = "+" if frgn_억 > 0 else ""
+        indv_sign = "+" if indv_억 > 0 else ""
+
+        gain = s["gain_pct"]
+        gain_color = "#dc2626" if gain > 0 else "#2563eb" if gain < 0 else "#64748b"
+        gain_arrow = "▲" if gain > 0 else "▼" if gain < 0 else "−"
+
+        # 쌍끌이 뱃지
+        both_badge = (
+            '<span style="background:#7c3aed; color:#fff; padding:1px 7px; '
+            'border-radius:6px; font-size:0.65em; font-weight:700; margin-left:6px;">'
+            '🔥 쌍끌이</span>'
+        ) if s["both"] else ""
+
+        # 수급 바 (기관 / 외국인 합산 강도 시각화)
+        max_abs = max(abs(s["inst"]), abs(s["frgn"]), 1)
+        inst_bar_w = min(100, abs(s["inst"]) / max_abs * 100)
+        frgn_bar_w = min(100, abs(s["frgn"]) / max_abs * 100)
+
+        st.markdown(
+            f'<div style="background:#fff; border-radius:14px; padding:16px; '
+            f'margin-bottom:10px; border:1px solid #e2e8f0; '
+            f'box-shadow:0 2px 6px rgba(0,0,0,0.04);">'
+            # 헤더
+            f'<div style="display:flex; justify-content:space-between; align-items:center; '
+            f'flex-wrap:wrap; gap:8px; margin-bottom:10px;">'
+            f'  <div>'
+            f'    <span style="font-weight:700; font-size:1.05em; color:#1e293b;">{s["name"]}</span>'
+            f'    <span style="font-size:0.72em; color:#94a3b8; margin-left:6px;">{s["ticker"]}</span>'
+            f'    {both_badge}'
+            f'    <div style="font-size:0.75em; color:#64748b; margin-top:2px;">{s["sector"]}</div>'
+            f'  </div>'
+            f'  <div style="text-align:right;">'
+            f'    <div style="font-size:0.72em; color:#94a3b8;">현재가</div>'
+            f'    <div style="font-size:0.95em; font-weight:700; color:#1e293b;">'
+            f'      {s["current_price"]:,.0f}원'
+            f'    </div>'
+            f'    <div style="font-size:0.82em; font-weight:700; color:{gain_color};">'
+            f'      {gain_arrow} {abs(gain):.2f}%'
+            f'    </div>'
+            f'  </div>'
+            f'</div>'
+            # 수급 수치
+            f'<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">'
+            f'  <div style="background:#eff6ff; border-radius:8px; padding:8px 14px; flex:1; min-width:90px; text-align:center;">'
+            f'    <div style="font-size:0.65em; color:#64748b;">🏛️ 기관 5일</div>'
+            f'    <div style="font-size:1.05em; font-weight:800; color:{inst_color};">'
+            f'      {inst_sign}{inst_억:,.1f}억</div>'
+            f'  </div>'
+            f'  <div style="background:#fff7ed; border-radius:8px; padding:8px 14px; flex:1; min-width:90px; text-align:center;">'
+            f'    <div style="font-size:0.65em; color:#64748b;">🌍 외국인 5일</div>'
+            f'    <div style="font-size:1.05em; font-weight:800; color:{frgn_color};">'
+            f'      {frgn_sign}{frgn_억:,.1f}억</div>'
+            f'  </div>'
+            f'  <div style="background:#f8fafc; border-radius:8px; padding:8px 14px; flex:1; min-width:90px; text-align:center;">'
+            f'    <div style="font-size:0.65em; color:#64748b;">👤 개인 5일</div>'
+            f'    <div style="font-size:1.05em; font-weight:800; color:{indv_color};">'
+            f'      {indv_sign}{indv_억:,.1f}억</div>'
+            f'  </div>'
+            f'</div>'
+            # 강도 바
+            f'<div style="font-size:0.72em; color:#64748b; margin-bottom:3px;">기관 수급 강도</div>'
+            f'<div style="background:#e2e8f0; border-radius:6px; height:7px; margin-bottom:6px; overflow:hidden;">'
+            f'  <div style="width:{inst_bar_w:.0f}%; height:100%; background:#2563eb; border-radius:6px;"></div>'
+            f'</div>'
+            f'<div style="font-size:0.72em; color:#64748b; margin-bottom:3px;">외국인 수급 강도</div>'
+            f'<div style="background:#e2e8f0; border-radius:6px; height:7px; overflow:hidden;">'
+            f'  <div style="width:{frgn_bar_w:.0f}%; height:100%; background:#ea580c; border-radius:6px;"></div>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )

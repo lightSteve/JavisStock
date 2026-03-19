@@ -203,6 +203,7 @@ def _do_refresh(date: str, market: str, supply_days: int):
             _cache.pop(k, None)
 
         daily_df = smart_load_daily_data(date, market, supply_days)
+        # ※ smart_load_daily_data 내부에서 price_cache.update_from_dataframe() 자동 호출
 
         if not daily_df.empty:
             _store.put(daily_df, date, market)
@@ -241,6 +242,12 @@ def _do_analysis(date: str):
         # ── 4) 테마 목록 (트레이더 Type A) ──
         _precompute_theme_list()
 
+        # ── 5) 발굴 종목 price_cache 개별 갱신 (KIS 우선 → Naver)
+        #       분석 완료 후 주요 발굴 티커를 최신 가격으로 추가 갱신합니다.
+        #       장중에만 실행합니다 (장외에는 _do_refresh 의 bulk 갱신으로 충분).
+        if _is_market_hours():
+            _refresh_tracked_prices(date)
+
         logger.info(
             f"[Scheduler] 사전 분석 완료: "
             f"{datetime.datetime.now().strftime('%H:%M:%S')}"
@@ -249,6 +256,30 @@ def _do_analysis(date: str):
         logger.error(f"[Scheduler] 사전 분석 실패: {e}")
     finally:
         _analysis.is_analyzing = False
+
+
+def _refresh_tracked_prices(date: str):
+    """발굴 주요 티커(Top3 + screened)의 가격을 price_cache에서 개별 갱신.
+
+    스케줄러 분석 완료 후 장중에만 호출됩니다.
+    price_cache.ensure_fresh() 가 내부적으로 KIS 우선 → Naver 폴백을 처리합니다.
+    """
+    from data.price_cache import price_cache
+
+    tracked: set = set()
+
+    # Smart Top3 티커
+    for r in _analysis.get_smart_top3(date):
+        tracked.add(r["ticker"])
+
+    # Screened 티커 (상위 20개)
+    screened_df = _analysis.get_screened(date)
+    if screened_df is not None and not screened_df.empty:
+        tracked.update(screened_df.head(20).index.tolist())
+
+    if tracked:
+        logger.info(f"[Scheduler] 발굴 종목 현재가 갱신: {len(tracked)}개")
+        price_cache.ensure_fresh(list(tracked))
 
 
 def _precompute_smart_top3(daily_df: pd.DataFrame, date: str):
