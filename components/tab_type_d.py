@@ -346,7 +346,7 @@ def _render_sector_recovery(daily_df: pd.DataFrame, sector_summary: pd.DataFrame
 
     phase_color_map = {"급락": "#dc2626", "하락": "#ea580c", "회복": "#f59e0b", "상승": "#16a34a"}
 
-    for _, sec_row in target_sectors.iterrows():
+    for sec_idx, (_, sec_row) in enumerate(target_sectors.iterrows()):
         sector = sec_row["섹터"]
         phase = sec_row["국면"]
         p_color = phase_color_map.get(phase, "#64748b")
@@ -391,7 +391,7 @@ def _render_sector_recovery(daily_df: pd.DataFrame, sector_summary: pd.DataFrame
             with col_btn:
                 wl_tickers = {e["ticker"] for e in get_watchlist()}
                 in_wl = str(ticker) in wl_tickers
-                if st.button("⭐" if in_wl else "☆", key=f"wl_recov_{sector}_{ticker}", use_container_width=True):
+                if st.button("⭐" if in_wl else "☆", key=f"wl_recov_{sec_idx}_{sector}_{ticker}", use_container_width=True):
                     if in_wl:
                         remove_from_watchlist(str(ticker))
                     else:
