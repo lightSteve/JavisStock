@@ -625,7 +625,7 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                     st.caption("🔴 KIS API 연결됨 · 수급 조회 중 (장 시작 전이거나 조회 대기)")
         else:
             st.caption(
-                "💡 KIS API 미연결 · 수급은 전 거래일 확정 기준 | "
+                "💡 KIS API 미연결 · 수급은 네이버 기준 (KRX 배치 집계, 당일 실시간 미지원) | "
                 "연결 방법: Streamlit Cloud → 앱 설정 → Secrets에 [kis] app_key / app_secret 추가"
             )
 

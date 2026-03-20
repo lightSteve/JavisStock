@@ -190,16 +190,14 @@ def _fetch_stock_price_history(ticker: str, count: int = 120) -> List[Dict]:
 
 def _fetch_stock_integration(ticker: str) -> Dict:
     """종목 통합 정보 (OHLCV, 수급, 업종 등).
-    장중(09:00~16:00)에는 5분 TTL, 장외에는 30분 TTL 캐시.
+    Naver dealTrendInfos는 KRX 배치 기준이므로 장중에도 30분 TTL.
+    (5분마다 새로 불러도 Naver 원본 데이터가 안 바뀌어 있으므로 무의미)
     """
     cache_key = f"integration_{ticker}"
     now = time.time()
     cached = _cache.get(cache_key)
     if cached and isinstance(cached, dict):
-        # 장중 여부에 따라 TTL 결정
-        _h = datetime.datetime.now().hour
-        _in_market = 9 <= _h < 16
-        _ttl = 300 if _in_market else 1800  # 장중 5분, 장외 30분
+        _ttl = 1800  # 30분 TTL (장중/장외 동일 — KRX 배치 주기 감안)
         if now - cached.get("_cache_ts", 0) < _ttl:
             return {k: v for k, v in cached.items() if k != "_cache_ts"}
 
