@@ -220,7 +220,7 @@ def _render_sector_stock_detail(
         with col_btn:
             wl_tickers = {e["ticker"] for e in get_watchlist()}
             in_wl = str(ticker) in wl_tickers
-                if st.button("⭐" if in_wl else "☆", key=f"wl_sec_top5_{top5_idx}", use_container_width=True):
+            if st.button("⭐" if in_wl else "☆", key=f"wl_sec_top5_{top5_idx}", use_container_width=True):
                 if in_wl:
                     remove_from_watchlist(str(ticker))
                 else:
