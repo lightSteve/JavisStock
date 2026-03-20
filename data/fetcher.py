@@ -1188,6 +1188,257 @@ def get_kis_realtime_price(ticker: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 키움 REST API — 개별 종목 기관/외국인 수급
+#
+# [설정 방법]
+# 1) 앱 UI에서 직접 입력 → portfolio_data/kiwoom_credentials.json 저장
+# 2) Streamlit Cloud Secrets: [kiwoom] app_key / app_secret
+# 3) 환경변수: KIWOOM_APP_KEY / KIWOOM_APP_SECRET
+#
+# 핵심 TR:
+#   ka10009 — 주식기관요청: 종목별 기관/외국인 일별 순매매
+#   ka10059 — 종목별투자자기관별요청: 기간별 상세 기관 분류
+# ---------------------------------------------------------------------------
+
+KIWOOM_API_BASE = "https://api.kiwoom.com"
+_KIWOOM_CRED_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "portfolio_data", "kiwoom_credentials.json"
+)
+
+
+def save_kiwoom_credentials(app_key: str, app_secret: str):
+    """앱 UI에서 입력한 키움 자격증명을 파일에 저장."""
+    cred_path = os.path.normpath(_KIWOOM_CRED_FILE)
+    os.makedirs(os.path.dirname(cred_path), exist_ok=True)
+    with open(cred_path, "w", encoding="utf-8") as f:
+        json.dump({"app_key": app_key, "app_secret": app_secret}, f)
+    _cache.pop("_kiwoom_tok", None)
+    _cache.pop("_kiwoom_tok_ts", None)
+
+
+def delete_kiwoom_credentials():
+    """저장된 키움 자격증명 삭제."""
+    cred_path = os.path.normpath(_KIWOOM_CRED_FILE)
+    if os.path.exists(cred_path):
+        os.remove(cred_path)
+    for k in ["_kiwoom_tok", "_kiwoom_tok_ts"]:
+        _cache.pop(k, None)
+
+
+def _get_kiwoom_credentials():
+    """키움 자격증명 획득 (우선순위: 파일 > st.secrets > 환경변수)."""
+    cred_path = os.path.normpath(_KIWOOM_CRED_FILE)
+    if os.path.exists(cred_path):
+        try:
+            with open(cred_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            k, s = d.get("app_key", ""), d.get("app_secret", "")
+            if k and s:
+                return k, s
+        except Exception:
+            pass
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "kiwoom" in st.secrets:
+            return (
+                str(st.secrets["kiwoom"].get("app_key", "")),
+                str(st.secrets["kiwoom"].get("app_secret", "")),
+            )
+    except Exception:
+        pass
+    return os.getenv("KIWOOM_APP_KEY", ""), os.getenv("KIWOOM_APP_SECRET", "")
+
+
+def is_kiwoom_configured() -> bool:
+    """키움 API 자격증명 설정 여부."""
+    k, s = _get_kiwoom_credentials()
+    return bool(k and s)
+
+
+def get_kiwoom_access_token() -> str:
+    """
+    키움 OAuth access token 발급 (만료일 기반 캐시).
+    자격증명 미설정 또는 실패 시 빈 문자열 반환.
+    """
+    now = time.time()
+    tok = _cache.get("_kiwoom_tok", "")
+    if tok and now - _cache.get("_kiwoom_tok_ts", 0) < 82800:  # 23시간
+        return tok
+    k, s = _get_kiwoom_credentials()
+    if not k or not s:
+        return ""
+    try:
+        resp = requests.post(
+            f"{KIWOOM_API_BASE}/oauth2/token",
+            json={"grant_type": "client_credentials", "appkey": k, "secretkey": s},
+            headers={"content-type": "application/json;charset=UTF-8"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        tok = data.get("token", "")
+        if tok and data.get("return_code", -1) == 0:
+            _cache["_kiwoom_tok"] = tok
+            _cache["_kiwoom_tok_ts"] = now
+        return tok
+    except Exception as e:
+        _cache["_kiwoom_inv_last_err"] = f"토큰 발급 실패: {str(e)[:80]}"
+        return ""
+
+
+def get_kiwoom_stock_investor(ticker: str) -> Dict:
+    """
+    키움 ka10009: 주식기관요청
+    종목별 기관/외국인 일별 순매매 조회 (5분 캐시).
+
+    반환: {"외국인": float, "기관": float, "date": "YYYYMMDD"}  (단위: 수량, 정수)
+          자격증명 미설정 / API 오류 시: {} 반환
+
+    [응답 필드]
+    - orgn_daly_nettrde : 기관 일별 순매매 (수량)
+    - frgnr_daly_nettrde: 외국인 일별 순매매 (수량)
+    - orgn_dt_acc       : 기관 기간 누적
+    - date              : 기준일자
+    """
+    if not is_kiwoom_configured():
+        return {}
+    cache_key = f"kiwoom_inv_{ticker}"
+    now = time.time()
+    cached = _cache.get(cache_key)
+    if cached and now - cached.get("_ts", 0) < 300:  # 5분 캐시
+        return {k: v for k, v in cached.items() if not k.startswith("_")}
+
+    tok = get_kiwoom_access_token()
+    if not tok:
+        return {}
+    try:
+        resp = requests.post(
+            f"{KIWOOM_API_BASE}/api/dostk/frgnistt",
+            headers={
+                "content-type": "application/json;charset=UTF-8",
+                "authorization": f"Bearer {tok}",
+                "api-id": "ka10009",
+            },
+            json={"stk_cd": ticker},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("return_code") != 0:
+            _cache["_kiwoom_inv_last_err"] = f"return_code={data.get('return_code')} msg={data.get('return_msg', '')}"
+            return {}
+
+        def _to_int_signed(v) -> int:
+            s = str(v).replace(",", "").strip()
+            try:
+                return int(s)
+            except ValueError:
+                return 0
+
+        orgn = _to_int_signed(data.get("orgn_daly_nettrde", "0"))
+        frgn = _to_int_signed(data.get("frgnr_daly_nettrde", "0"))
+        date_str = str(data.get("date", "")).strip()
+
+        result = {"외국인_qty": frgn, "기관_qty": orgn, "date": date_str, "_ts": now}
+        _cache[cache_key] = result
+        _cache.pop("_kiwoom_inv_last_err", None)
+        return {k: v for k, v in result.items() if not k.startswith("_")}
+    except Exception as e:
+        _cache["_kiwoom_inv_last_err"] = str(e)[:120]
+        return {}
+
+
+def get_kiwoom_stock_investor_detail(ticker: str, date: str = None) -> Dict:
+    """
+    키움 ka10059: 종목별투자자기관별요청
+    특정일 기관 세부 분류(금융투자/보험/투신/은행/연기금/사모펀드) 순매매.
+
+    반환: {
+        "개인": int, "외국인": int, "기관": int,
+        "금융투자": int, "보험": int, "투신": int,
+        "은행": int, "연기금": int, "사모펀드": int
+    }  (단위: amt_qty_tp에 따라 금액 또는 수량)
+    """
+    if not is_kiwoom_configured():
+        return {}
+    if date is None:
+        date = datetime.date.today().strftime("%Y%m%d")
+    cache_key = f"kiwoom_detail_{ticker}_{date}"
+    now = time.time()
+    cached = _cache.get(cache_key)
+    if cached and now - cached.get("_ts", 0) < 300:
+        return {k: v for k, v in cached.items() if not k.startswith("_")}
+
+    tok = get_kiwoom_access_token()
+    if not tok:
+        return {}
+    try:
+        resp = requests.post(
+            f"{KIWOOM_API_BASE}/api/dostk/stkinfo",
+            headers={
+                "content-type": "application/json;charset=UTF-8",
+                "authorization": f"Bearer {tok}",
+                "api-id": "ka10059",
+            },
+            json={
+                "stk_cd": ticker,
+                "dt": date,
+                "amt_qty_tp": "1",   # 1:금액
+                "trde_tp": "0",      # 0:순매수
+                "unit_tp": "1000",   # 천주
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("return_code") != 0:
+            return {}
+
+        rows = data.get("stk_invsr_orgn", [])
+        if not rows:
+            return {}
+
+        def _i(v) -> int:
+            try:
+                return int(str(v).replace(",", "").replace("+", "").strip())
+            except ValueError:
+                return 0
+
+        # 첫 번째 행 = 해당 날짜 합산
+        r = rows[0]
+        result = {
+            "개인": _i(r.get("ind_invsr", "0")),
+            "외국인": _i(r.get("frgnr_invsr", "0")),
+            "기관": _i(r.get("orgn", "0")),
+            "금융투자": _i(r.get("fnnc_invt", "0")),
+            "보험": _i(r.get("insrnc", "0")),
+            "투신": _i(r.get("invtrt", "0")),
+            "은행": _i(r.get("bank", "0")),
+            "연기금": _i(r.get("penfnd_etc", "0")),
+            "사모펀드": _i(r.get("samo_fund", "0")),
+            "date": date,
+            "_ts": now,
+        }
+        _cache[cache_key] = result
+        return {k: v for k, v in result.items() if not k.startswith("_")}
+    except Exception:
+        return {}
+
+
+def get_kiwoom_investor_last_error() -> str:
+    """마지막 키움 투자자 TR 에러 메시지 반환 (진단용)."""
+    return _cache.get("_kiwoom_inv_last_err", "")
+
+
+def clear_kiwoom_investor_cache(ticker: str = None):
+    """키움 투자자 수급 캐시 초기화."""
+    prefix = "kiwoom_inv_"
+    keys = [k for k in list(_cache) if k.startswith(prefix if not ticker else f"{prefix}{ticker}")]
+    for k in keys:
+        _cache.pop(k, None)
+
+
+# ---------------------------------------------------------------------------
 # 종합 데이터 빌더 (메인 파이프라인)
 # ---------------------------------------------------------------------------
 

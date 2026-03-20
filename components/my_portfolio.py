@@ -33,6 +33,12 @@ from data.fetcher import (
     get_kis_investor_last_diag,
     save_kis_credentials,
     delete_kis_credentials,
+    is_kiwoom_configured,
+    get_kiwoom_stock_investor,
+    save_kiwoom_credentials,
+    delete_kiwoom_credentials,
+    get_kiwoom_investor_last_error,
+    clear_kiwoom_investor_cache,
 )
 from analysis.indicators import calc_moving_averages
 
@@ -281,7 +287,6 @@ def _render_kis_settings():
                                     st.error(f"❌ [FHKST01010100] rt_cd={rt2}: {data2.get('msg1','')}")
                             except Exception as e:
                                 st.error(f"❌ [FHKST01010100] 요청 실패: {e}")
-            with col_d:
                 if st.button("🗑️ KIS 키 삭제", key="kis_delete", type="secondary"):
                     delete_kis_credentials()
                     st.success("삭제됐습니다.")
@@ -311,6 +316,43 @@ def _render_kis_settings():
                 else:
                     save_kis_credentials(app_key.strip(), app_secret.strip())
                     st.success("✅ KIS API 키가 저장됐습니다! 이제 장중 실시간 수급이 표시됩니다.")
+                    st.rerun()
+
+    # ── 키움 REST API 설정 ──
+    with st.expander("🟠 키움 REST API 설정 (KIS 미사용 시 대체 수급 소스)", expanded=False):
+        if is_kiwoom_configured():
+            st.success("✅ 키움 REST API 연결됨")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.caption("기관/외국인 일별 순매매 데이터 (ka10009 TR)")
+            with col_b:
+                if st.button("🗑️ 키움 키 삭제", key="kiwoom_delete", type="secondary"):
+                    delete_kiwoom_credentials()
+                    st.success("삭제됐습니다.")
+                    st.rerun()
+        else:
+            st.markdown(
+                "**키움 REST API** 앱 키를 입력하면 KIS 미연결 환경에서도 기관/외국인 수급을 조회합니다.\n\n"
+                "📌 발급: [openapi.kiwoom.com](https://openapi.kiwoom.com) → 로그인 → API 사용신청 → 앱 키 발급"
+            )
+            kw_app_key = st.text_input(
+                "App Key",
+                placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                key="kiwoom_app_key_input",
+                type="password",
+            )
+            kw_app_secret = st.text_input(
+                "App Secret",
+                placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                key="kiwoom_app_secret_input",
+                type="password",
+            )
+            if st.button("💾 저장", key="kiwoom_save", type="primary"):
+                if not kw_app_key or not kw_app_secret:
+                    st.warning("App Key와 App Secret을 모두 입력해주세요.")
+                else:
+                    save_kiwoom_credentials(kw_app_key.strip(), kw_app_secret.strip())
+                    st.success("✅ 키움 API 키가 저장됐습니다!")
                     st.rerun()
 
 
@@ -565,6 +607,38 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 except Exception:
                     pass
 
+        # 3순위: 키움 REST API (KIS 미연결 시 대체 소스)
+        kiwoom_live = False
+        if not kis_live and is_kiwoom_configured():
+            try:
+                kw = get_kiwoom_stock_investor(ticker)
+                if kw:
+                    fq = kw.get("외국인_qty", 0)
+                    oq = kw.get("기관_qty", 0)
+                    # qty × 현재가 → 억원 (수량 기반)
+                    if cur_price > 0:
+                        frgn_5d = fq * cur_price / 1e8
+                        inst_5d = oq * cur_price / 1e8
+                    else:
+                        frgn_5d = float(fq) / 1e4  # 단위 미상시 만주 단위로 근사
+                        inst_5d = float(oq) / 1e4
+                    inst_buy_5d = inst_5d if inst_5d >= 0 else 0.0
+                    inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
+                    frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
+                    frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
+                    _kw_date = kw.get("date", "")
+                    import datetime as _dt
+                    _today = _dt.date.today().strftime("%Y%m%d")
+                    if _kw_date == _today:
+                        supply_date_str = "오늘(키움)"
+                    elif _kw_date and len(_kw_date) == 8:
+                        supply_date_str = f"{_kw_date[4:6]}/{_kw_date[6:8]}(키움)"
+                    else:
+                        supply_date_str = "키움"
+                    kiwoom_live = True
+            except Exception:
+                pass
+
         # daily_df에서 시장 조회
         mkt = ""
         if daily_df is not None and ticker in daily_df.index and "시장" in daily_df.columns:
@@ -591,7 +665,8 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             "외국인매수": frgn_buy_5d,
             "외국인매도": frgn_sell_5d,
             "수급기준일": supply_date_str,
-            "수급실시간": kis_live,
+            "수급실시간": kis_live or kiwoom_live,
+            "수급소스": "KIS" if kis_live else ("키움" if kiwoom_live else "Naver"),
         })
 
     # 전체 요약 메트릭
@@ -612,7 +687,7 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
     # 종목별 테이블
     if rows:
         st.markdown("### 📋 보유종목 현황")
-        # KIS 연결 상태 배지
+        # 연결 상태 배지
         if is_kis_configured():
             any_kis_live = any(r.get("수급실시간") for r in rows)
             if any_kis_live:
@@ -623,10 +698,17 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                     st.caption(f"🔴 KIS API 연결됨 · ⚠️ 수급 TR 오류: {err}")
                 else:
                     st.caption("🔴 KIS API 연결됨 · 수급 조회 중 (장 시작 전이거나 조회 대기)")
+        elif is_kiwoom_configured():
+            any_kw_live = any(r.get("수급소스") == "키움" for r in rows)
+            if any_kw_live:
+                st.caption("🟠 키움 REST API 연결됨 · 기관/외국인 수급 일별 순매매 (5분 주기)")
+            else:
+                err = get_kiwoom_investor_last_error()
+                st.caption(f"🟠 키움 REST API 연결됨 · {'⚠️ ' + err if err else '수급 조회 중'}")
         else:
             st.caption(
-                "💡 KIS API 미연결 · 수급은 네이버 기준 (KRX 배치 집계, 당일 실시간 미지원) | "
-                "연결 방법: Streamlit Cloud → 앱 설정 → Secrets에 [kis] app_key / app_secret 추가"
+                "💡 KIS/키움 API 미연결 · 수급은 네이버 기준 (KRX 배치 집계, 당일 실시간 미지원) | "
+                "연결: Secrets에 [kis] 또는 [kiwoom] app_key / app_secret 추가"
             )
 
         for r in rows:
