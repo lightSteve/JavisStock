@@ -182,8 +182,11 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
 
     non_wl_cols = [c for c in df_display.columns if c != "⭐"]
 
+    _EDITOR_KEY = "top_picks_screened_editor"
+
     edited_df = st.data_editor(
         df_display,
+        key=_EDITOR_KEY,
         use_container_width=True,
         hide_index=True,
         height=min(len(df_display) * 38 + 40, 700),
@@ -212,7 +215,7 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
             stock_rows = df[df["티커"] == ticker]
             if not stock_rows.empty:
                 sr = stock_rows.iloc[0]
-                add_to_watchlist(
+                success = add_to_watchlist(
                     ticker=ticker,
                     name=str(sr.get("종목명", ticker)),
                     price=float(sr.get("종가", 0)),
@@ -220,12 +223,15 @@ def render_screened_table(screened_df: pd.DataFrame, top_n: int = 20) -> Optiona
                     market=str(sr.get("시장", "")),
                     source="🔥 발굴:종목테이블",
                 )
-                changed = True
+                if success:
+                    changed = True
         elif not is_in_wl and was_in_wl:
-            remove_from_watchlist(ticker)
-            changed = True
+            if remove_from_watchlist(ticker):
+                changed = True
 
     if changed:
+        # data_editor 위젯 상태를 초기화해서 다음 리런에서 갱신된 관심종목 기반으로 새로 그림
+        st.session_state.pop(_EDITOR_KEY, None)
         st.rerun()
 
     # 종목 선택 (시장 구분 표시)

@@ -31,6 +31,7 @@ from data.scheduler import (
     get_cached_smart_top3,
     get_cached_screened,
     is_analysis_ready,
+    REFRESH_INTERVAL_SEC,
 )
 from analysis.screening import screen_by_supply, add_chart_status, run_full_screening, apply_technical_filters
 from components.sidebar import render_sidebar
@@ -280,6 +281,17 @@ top_n = config["top_n"]
 # 백그라운드 데이터 갱신 스케줄러 (10분 간격)
 # ===========================================================================
 start_scheduler(date_str, market, supply_days)
+
+# ── 자동 화면 새로고침 (장중에만) ──
+# 스케줄러가 _store를 갱신해도 Streamlit은 사용자 인터랙션 없이 자동 재실행하지 않으므로
+# st_autorefresh로 주기적 rerun을 발생시켜 갱신된 데이터를 화면에 반영한다.
+try:
+    from streamlit_autorefresh import st_autorefresh
+    _status_for_refresh = get_data_status()
+    if _status_for_refresh.get("is_market_hours", False):
+        st_autorefresh(interval=REFRESH_INTERVAL_SEC * 1000, key="sched_autorefresh")
+except ImportError:
+    pass  # 패키지 미설치 시 무시 (수동 새로고침으로 동작)
 
 # ===========================================================================
 # 로드 버튼 (사이드바 상단에 배치됨) — 캐시 함수 정의 후 처리
