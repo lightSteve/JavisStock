@@ -189,18 +189,28 @@ def _fetch_stock_price_history(ticker: str, count: int = 120) -> List[Dict]:
 
 
 def _fetch_stock_integration(ticker: str) -> Dict:
-    """종목 통합 정보 (OHLCV, 수급, 업종 등)."""
+    """종목 통합 정보 (OHLCV, 수급, 업종 등).
+    장중(09:00~16:00)에는 5분 TTL, 장외에는 30분 TTL 캐시.
+    """
     cache_key = f"integration_{ticker}"
-    if cache_key in _cache:
-        return _cache[cache_key]
+    now = time.time()
+    cached = _cache.get(cache_key)
+    if cached and isinstance(cached, dict):
+        # 장중 여부에 따라 TTL 결정
+        _h = datetime.datetime.now().hour
+        _in_market = 9 <= _h < 16
+        _ttl = 300 if _in_market else 1800  # 장중 5분, 장외 30분
+        if now - cached.get("_cache_ts", 0) < _ttl:
+            return {k: v for k, v in cached.items() if k != "_cache_ts"}
 
     url = f"{NAVER_API}/stock/{ticker}/integration"
     try:
         resp = _session.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+        data["_cache_ts"] = now
         _cache[cache_key] = data
-        return data
+        return {k: v for k, v in data.items() if k != "_cache_ts"}
     except Exception:
         return {}
 
