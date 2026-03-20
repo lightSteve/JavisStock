@@ -196,7 +196,7 @@ def _render_sector_stock_detail(
     # 상위 종목 카드 (상승 TOP 5)
     top5 = sector_df.head(5)
     st.markdown("**상승 상위 종목**")
-    for ticker, srow in top5.iterrows():
+    for top5_idx, (ticker, srow) in enumerate(top5.iterrows()):
         name = srow.get("종목명", ticker)
         change = srow.get("등락률", 0)
         price = srow.get("종가", 0)
@@ -220,7 +220,7 @@ def _render_sector_stock_detail(
         with col_btn:
             wl_tickers = {e["ticker"] for e in get_watchlist()}
             in_wl = str(ticker) in wl_tickers
-            if st.button("⭐" if in_wl else "☆", key=f"wl_sec_top5_{ticker}", use_container_width=True):
+                if st.button("⭐" if in_wl else "☆", key=f"wl_sec_top5_{top5_idx}", use_container_width=True):
                 if in_wl:
                     remove_from_watchlist(str(ticker))
                 else:
@@ -281,7 +281,7 @@ def _render_sector_scanner(daily_df: pd.DataFrame, sector_summary: pd.DataFrame,
             st.caption(f"  ✅ {sector} 섹터에 급락 종목이 없습니다.")
             continue
 
-        for ticker, row in crash.head(10).iterrows():
+        for crash_idx, (ticker, row) in enumerate(crash.head(10).iterrows()):
             name = row.get("종목명", ticker)
             change = row.get("등락률", 0)
             price = row.get("종가", 0)
@@ -312,7 +312,7 @@ def _render_sector_scanner(daily_df: pd.DataFrame, sector_summary: pd.DataFrame,
             with col_btn:
                 wl_tickers = {e["ticker"] for e in get_watchlist()}
                 in_wl = str(ticker) in wl_tickers
-                if st.button("⭐" if in_wl else "☆", key=f"wl_crash_{sector}_{ticker}", use_container_width=True):
+                if st.button("⭐" if in_wl else "☆", key=f"wl_crash_{selected_sectors.index(sector)}_{crash_idx}", use_container_width=True):
                     if in_wl:
                         remove_from_watchlist(str(ticker))
                     else:
@@ -367,7 +367,7 @@ def _render_sector_recovery(daily_df: pd.DataFrame, sector_summary: pd.DataFrame
             st.caption(f"  {sector}: 아직 반등 신호 종목이 없습니다.")
             continue
 
-        for ticker, row in recovering.head(8).iterrows():
+        for stock_idx, (ticker, row) in enumerate(recovering.head(8).iterrows()):
             name = row.get("종목명", ticker)
             change = row.get("등락률", 0)
             price = row.get("종가", 0)
@@ -391,7 +391,7 @@ def _render_sector_recovery(daily_df: pd.DataFrame, sector_summary: pd.DataFrame
             with col_btn:
                 wl_tickers = {e["ticker"] for e in get_watchlist()}
                 in_wl = str(ticker) in wl_tickers
-                if st.button("⭐" if in_wl else "☆", key=f"wl_recov_{sec_idx}_{sector}_{ticker}", use_container_width=True):
+                if st.button("⭐" if in_wl else "☆", key=f"wl_recov_{sec_idx}_{stock_idx}", use_container_width=True):
                     if in_wl:
                         remove_from_watchlist(str(ticker))
                     else:
