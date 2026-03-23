@@ -2144,3 +2144,76 @@ def detect_volume_spike_stocks(daily_df: pd.DataFrame, min_change: float = 3.0) 
     mask = (daily_df["등락률"] >= min_change) & (daily_df.get("거래대금", pd.Series(dtype=float)) > 0)
     result = daily_df[mask].sort_values("거래대금", ascending=False).copy()
     return result.head(50)
+
+
+# ---------------------------------------------------------------------------
+# 미국 주요 지수 (나스닥·S&P500·다우존스) 최근 2거래일 데이터
+# ---------------------------------------------------------------------------
+
+_US_INDEX_MAP = {
+    "NASDAQ":  "NAS",   # 나스닥 종합
+    "S&P500":  "SPI",   # S&P 500
+    "DOW":     "DJI",   # 다우존스
+}
+
+_US_INDEX_CACHE: Dict[str, dict] = {}
+_US_INDEX_CACHE_TS: float = 0.0
+_US_INDEX_CACHE_TTL: float = 60 * 15  # 15분
+
+
+def get_us_index_summary() -> List[Dict]:
+    """
+    네이버 Finance API 에서 나스닥·S&P500·다우존스 최근 종가 및 전일 대비 등락률을 반환.
+
+    반환 리스트 각 원소:
+        {
+          "name": str,          # 지수 이름 ("NASDAQ" / "S&P500" / "DOW")
+          "close": float,       # 최근 종가
+          "change": float,      # 전일 대비 변동 (포인트)
+          "pct": float,         # 전일 대비 등락률 (%)
+          "prev_close": float,  # 전일 종가
+        }
+    """
+    global _US_INDEX_CACHE, _US_INDEX_CACHE_TS
+    now = time.time()
+    if _US_INDEX_CACHE and (now - _US_INDEX_CACHE_TS) < _US_INDEX_CACHE_TTL:
+        return list(_US_INDEX_CACHE.values())
+
+    results: List[Dict] = []
+    # 네이버 글로벌 지수 API
+    _US_NAVER_MAP = {
+        "NASDAQ": "NAS",
+        "S&P500": "SPI",
+        "DOW":    "DJI",
+    }
+    for name, code in _US_NAVER_MAP.items():
+        try:
+            url = f"https://m.stock.naver.com/api/index/{code}/price"
+            params = {"pageSize": 2, "page": 1}
+            resp = _session.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            items = resp.json()
+            if not isinstance(items, list) or len(items) < 1:
+                continue
+            latest = items[0]
+            prev = items[1] if len(items) >= 2 else {}
+            close = _to_float(latest.get("closePrice", 0))
+            prev_close = _to_float(prev.get("closePrice", 0)) if prev else 0.0
+            pct = _to_float(latest.get("fluctuationsRatio", 0))
+            change = close - prev_close if prev_close else 0.0
+            record = {
+                "name": name,
+                "close": close,
+                "change": change,
+                "pct": pct,
+                "prev_close": prev_close,
+                "date": latest.get("localTradedAt", ""),
+            }
+            results.append(record)
+            _US_INDEX_CACHE[name] = record
+        except Exception:
+            pass
+
+    if results:
+        _US_INDEX_CACHE_TS = now
+    return results
