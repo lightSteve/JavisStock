@@ -2163,7 +2163,8 @@ _US_INDEX_CACHE_TTL: float = 60 * 15  # 15분
 
 def get_us_index_summary() -> List[Dict]:
     """
-    Stooq CSV API 에서 나스닥·S&P500·다우존스 최근 종가 및 전일 대비 등락률을 반환.
+    yfinance 로 나스닥·S&P500·다우존스 최근 종가 및 전일 대비 등락률을 반환.
+    yfinance 실패 시 Stooq CSV API 로 폴백.
 
     반환 리스트 각 원소:
         {
@@ -2181,39 +2182,80 @@ def get_us_index_summary() -> List[Dict]:
         return list(_US_INDEX_CACHE.values())
 
     results: List[Dict] = []
-    _stooq_headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    }
-    for name, sym in _US_INDEX_MAP.items():
-        try:
-            url = f"https://stooq.com/q/d/l/?s={sym}&i=d"
-            resp = requests.get(url, headers=_stooq_headers, timeout=10)
-            resp.raise_for_status()
-            lines = [l for l in resp.text.strip().split("\n") if l.strip()]
-            # lines[0] = header, lines[-1] = latest, lines[-2] = prev
-            if len(lines) < 3:
-                continue
-            # Date,Open,High,Low,Close,Volume
-            def _parse_row(line: str):
-                parts = line.split(",")
-                return parts[0], float(parts[4]) if len(parts) >= 5 else 0.0
 
-            date_str_val, close = _parse_row(lines[-1])
-            _, prev_close = _parse_row(lines[-2])
-            change = close - prev_close
-            pct = (change / prev_close * 100) if prev_close else 0.0
-            record = {
-                "name": name,
-                "close": close,
-                "change": change,
-                "pct": pct,
-                "prev_close": prev_close,
-                "date": date_str_val,
-            }
-            results.append(record)
-            _US_INDEX_CACHE[name] = record
-        except Exception:
-            pass
+    # ── 1차: yfinance ──────────────────────────────────────────────────────
+    _YF_MAP = {
+        "NASDAQ": "^IXIC",
+        "S&P500": "^GSPC",
+        "DOW":    "^DJI",
+    }
+    try:
+        import yfinance as yf
+        for name, sym in _YF_MAP.items():
+            try:
+                ticker = yf.Ticker(sym)
+                hist = ticker.history(period="5d", interval="1d")
+                if hist.empty or len(hist) < 2:
+                    continue
+                close = float(hist["Close"].iloc[-1])
+                prev_close = float(hist["Close"].iloc[-2])
+                change = close - prev_close
+                pct = (change / prev_close * 100) if prev_close else 0.0
+                date_val = str(hist.index[-1].date())
+                record = {
+                    "name": name,
+                    "close": close,
+                    "change": change,
+                    "pct": pct,
+                    "prev_close": prev_close,
+                    "date": date_val,
+                }
+                results.append(record)
+                _US_INDEX_CACHE[name] = record
+            except Exception:
+                pass
+    except ImportError:
+        pass
+
+    # ── 2차: Stooq CSV 폴백 ─────────────────────────────────────────────────
+    if not results:
+        _STOOQ_MAP = {
+            "NASDAQ": "^NDX",
+            "S&P500": "^SPX",
+            "DOW":    "^DJI",
+        }
+        _stooq_headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        }
+        for name, sym in _STOOQ_MAP.items():
+            if name in _US_INDEX_CACHE:
+                continue
+            try:
+                url = f"https://stooq.com/q/d/l/?s={sym}&i=d"
+                resp = requests.get(url, headers=_stooq_headers, timeout=10)
+                resp.raise_for_status()
+                lines = [l for l in resp.text.strip().split("\n") if l.strip()]
+                if len(lines) < 3:
+                    continue
+                def _parse_row(line: str):
+                    parts = line.split(",")
+                    return parts[0], float(parts[4]) if len(parts) >= 5 else 0.0
+                date_str_val, close = _parse_row(lines[-1])
+                _, prev_close = _parse_row(lines[-2])
+                change = close - prev_close
+                pct = (change / prev_close * 100) if prev_close else 0.0
+                record = {
+                    "name": name,
+                    "close": close,
+                    "change": change,
+                    "pct": pct,
+                    "prev_close": prev_close,
+                    "date": date_str_val,
+                }
+                results.append(record)
+                _US_INDEX_CACHE[name] = record
+            except Exception:
+                pass
 
     if results:
         _US_INDEX_CACHE_TS = now
