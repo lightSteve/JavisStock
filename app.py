@@ -282,14 +282,31 @@ top_n = config["top_n"]
 # ===========================================================================
 start_scheduler(date_str, market, supply_days)
 
-# ── 자동 화면 새로고침 (장중에만) ──
+# ── 자동 화면 새로고침 ──
 # 스케줄러가 _store를 갱신해도 Streamlit은 사용자 인터랙션 없이 자동 재실행하지 않으므로
 # st_autorefresh로 주기적 rerun을 발생시켜 갱신된 데이터를 화면에 반영한다.
+# - 장중: 10분 간격 (스케줄러와 동기화)
+# - 장 마감 후 갱신·분석 중: 30초 간격 (종가 확정 데이터 반영까지 대기)
+# - 장 마감 직후 창 (16:00~18:00): 30초 간격 (분석 미완료 상태 대비)
 try:
     from streamlit_autorefresh import st_autorefresh
+    import datetime as _dt_ar
     _status_for_refresh = get_data_status()
-    if _status_for_refresh.get("is_market_hours", False):
+    _in_market = _status_for_refresh.get("is_market_hours", False)
+    _is_busy = (
+        _status_for_refresh.get("is_refreshing", False)
+        or _status_for_refresh.get("is_analyzing", False)
+    )
+    _now_ar = _dt_ar.datetime.now()
+    _post_market_window = (
+        _now_ar.weekday() < 5
+        and 16 <= _now_ar.hour < 18  # 장 마감(16시) 후 2시간 유지
+    )
+    if _in_market:
         st_autorefresh(interval=REFRESH_INTERVAL_SEC * 1000, key="sched_autorefresh")
+    elif _is_busy or _post_market_window:
+        # 장 마감 후 갱신·분석 완료까지 30초 간격 자동 새로고침
+        st_autorefresh(interval=30_000, key="sched_autorefresh")
 except ImportError:
     pass  # 패키지 미설치 시 무시 (수동 새로고침으로 동작)
 
@@ -351,6 +368,21 @@ if (st.session_state.get("load_data")
     # 새로운 갱신 감지 → session_state 교체 후 rerun
     st.session_state["daily_df"] = _sched_df
     st.session_state["_last_sched_refresh"] = _sched_time
+    load_daily_data_cached.clear()
+    run_screening.clear()
+    st.rerun()
+
+# ── 장 마감 후 분석 완료 감지: 분석 결과가 갱신되면 화면 자동 최신화 ──
+# 스케줄러 분석(_do_analysis)이 완료된 것을 감지해 화면을 한 번 더 갱신한다.
+_cur_analysis_status = get_data_status()
+_analysis_done_at = _cur_analysis_status.get("analysis_updated_at")
+_prev_analysis_at = st.session_state.get("_last_analysis_at")
+if (st.session_state.get("load_data")
+        and _analysis_done_at is not None
+        and _analysis_done_at != _prev_analysis_at
+        and not _cur_analysis_status.get("is_market_hours", False)):
+    # 장 마감 후 새 분석 완료 감지 → 캐시 클리어 후 rerun
+    st.session_state["_last_analysis_at"] = _analysis_done_at
     load_daily_data_cached.clear()
     run_screening.clear()
     st.rerun()

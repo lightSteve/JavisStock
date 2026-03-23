@@ -399,10 +399,24 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
     logger.info(f"[Scheduler] 스케줄러 시작 (간격: {REFRESH_INTERVAL_SEC}초)")
 
     # 최초 즉시 갱신: 데이터 → 분석
-    _do_refresh(date, market, supply_days)
+    # 장 마감 후 기동 시 스냅샷이 장중 데이터(16:00 이전)이면 종가 확정 데이터로 재fetch
+    _now_start = datetime.datetime.now()
+    _today_str = datetime.date.today().strftime("%Y%m%d")
+    _is_post_market_start = (
+        date == _today_str
+        and not _is_market_hours()
+        and _now_start.weekday() < 5
+        and _now_start.hour >= MARKET_CLOSE_HOUR
+        and _is_snapshot_stale(date, market)
+    )
+    if _is_post_market_start:
+        logger.info("[Scheduler] 장 마감 후 기동 — 스냅샷이 장중 데이터, 종가 확정 데이터로 초기 갱신")
+        _do_post_market_snapshot(date, market, supply_days)
+        _snapshot_saved_today = True
+    else:
+        _do_refresh(date, market, supply_days)
+        _snapshot_saved_today = False
     _do_analysis(date)
-
-    _snapshot_saved_today = False  # 오늘 장마감 스냅샷 저장 여부
 
     while not _scheduler_stop.is_set():
         # 다음 갱신까지 대기 (stop 이벤트 체크하며)
@@ -430,6 +444,26 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
             logger.info("[Scheduler] 장 마감 시간 — API 갱신 스킵")
 
     logger.info("[Scheduler] 스케줄러 종료")
+
+
+def _is_snapshot_stale(date: str, market: str) -> bool:
+    """오늘 당일 스냅샷이 장 마감(16:00) 이전 저장이면 True (재fetch 필요).
+
+    과거 날짜는 항상 False — 과거 확정 데이터는 그대로 사용.
+    """
+    import os
+    from data.fetcher import _SNAPSHOT_DIR
+
+    today_str = datetime.date.today().strftime("%Y%m%d")
+    if date != today_str:
+        return False  # 과거 날짜는 재fetch 불필요
+
+    filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
+    if not os.path.exists(filepath):
+        return True  # 스냅샷 없음 → API fetch 필요
+
+    mtime_dt = datetime.datetime.fromtimestamp(os.path.getmtime(filepath))
+    return mtime_dt.hour < MARKET_CLOSE_HOUR  # 16시 이전 저장이면 stale
 
 
 def _do_post_market_snapshot(date: str, market: str, supply_days: int):
