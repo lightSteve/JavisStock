@@ -2151,9 +2151,9 @@ def detect_volume_spike_stocks(daily_df: pd.DataFrame, min_change: float = 3.0) 
 # ---------------------------------------------------------------------------
 
 _US_INDEX_MAP = {
-    "NASDAQ":  "NAS",   # 나스닥 종합
-    "S&P500":  "SPI",   # S&P 500
-    "DOW":     "DJI",   # 다우존스
+    "NASDAQ":  "%5ENDX",   # 나스닥 100
+    "S&P500":  "%5ESPX",   # S&P 500
+    "DOW":     "%5EDJI",   # 다우존스
 }
 
 _US_INDEX_CACHE: Dict[str, dict] = {}
@@ -2163,7 +2163,7 @@ _US_INDEX_CACHE_TTL: float = 60 * 15  # 15분
 
 def get_us_index_summary() -> List[Dict]:
     """
-    네이버 Finance API 에서 나스닥·S&P500·다우존스 최근 종가 및 전일 대비 등락률을 반환.
+    Stooq CSV API 에서 나스닥·S&P500·다우존스 최근 종가 및 전일 대비 등락률을 반환.
 
     반환 리스트 각 원소:
         {
@@ -2172,6 +2172,7 @@ def get_us_index_summary() -> List[Dict]:
           "change": float,      # 전일 대비 변동 (포인트)
           "pct": float,         # 전일 대비 등락률 (%)
           "prev_close": float,  # 전일 종가
+          "date": str,          # 날짜 문자열
         }
     """
     global _US_INDEX_CACHE, _US_INDEX_CACHE_TS
@@ -2180,34 +2181,34 @@ def get_us_index_summary() -> List[Dict]:
         return list(_US_INDEX_CACHE.values())
 
     results: List[Dict] = []
-    # 네이버 글로벌 지수 API
-    _US_NAVER_MAP = {
-        "NASDAQ": "NAS",
-        "S&P500": "SPI",
-        "DOW":    "DJI",
+    _stooq_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
     }
-    for name, code in _US_NAVER_MAP.items():
+    for name, sym in _US_INDEX_MAP.items():
         try:
-            url = f"https://m.stock.naver.com/api/index/{code}/price"
-            params = {"pageSize": 2, "page": 1}
-            resp = _session.get(url, params=params, timeout=10)
+            url = f"https://stooq.com/q/d/l/?s={sym}&i=d"
+            resp = requests.get(url, headers=_stooq_headers, timeout=10)
             resp.raise_for_status()
-            items = resp.json()
-            if not isinstance(items, list) or len(items) < 1:
+            lines = [l for l in resp.text.strip().split("\n") if l.strip()]
+            # lines[0] = header, lines[-1] = latest, lines[-2] = prev
+            if len(lines) < 3:
                 continue
-            latest = items[0]
-            prev = items[1] if len(items) >= 2 else {}
-            close = _to_float(latest.get("closePrice", 0))
-            prev_close = _to_float(prev.get("closePrice", 0)) if prev else 0.0
-            pct = _to_float(latest.get("fluctuationsRatio", 0))
-            change = close - prev_close if prev_close else 0.0
+            # Date,Open,High,Low,Close,Volume
+            def _parse_row(line: str):
+                parts = line.split(",")
+                return parts[0], float(parts[4]) if len(parts) >= 5 else 0.0
+
+            date_str_val, close = _parse_row(lines[-1])
+            _, prev_close = _parse_row(lines[-2])
+            change = close - prev_close
+            pct = (change / prev_close * 100) if prev_close else 0.0
             record = {
                 "name": name,
                 "close": close,
                 "change": change,
                 "pct": pct,
                 "prev_close": prev_close,
-                "date": latest.get("localTradedAt", ""),
+                "date": date_str_val,
             }
             results.append(record)
             _US_INDEX_CACHE[name] = record
