@@ -90,7 +90,7 @@ def _render_strategy_section(daily_df: pd.DataFrame, date_str: str,
     st.markdown(f"### {strat['icon']} Top {len(results)} 추천 종목")
 
     # 카드 렌더링
-    _render_result_cards(results)
+    _render_result_cards(results, strategy_key=key)
 
     # 테이블 렌더링
     with st.expander("📊 상세 데이터 테이블"):
@@ -185,7 +185,7 @@ def _score_color(score: float) -> str:
     return "#94a3b8"
 
 
-def _render_result_cards(results: list):
+def _render_result_cards(results: list, strategy_key: str = ""):
     """추천 종목 카드 그리드."""
     cols = st.columns(min(5, len(results)))
 
@@ -238,7 +238,7 @@ def _render_result_cards(results: list):
             wl_tickers = {e["ticker"] for e in get_watchlist()}
             in_wl = res["ticker"] in wl_tickers
             btn_label = "⭐ 관심 해제" if in_wl else "☆ 관심종목 추가"
-            if st.button(btn_label, key=f"wl_strat_{i}_{res['ticker']}", use_container_width=True):
+            if st.button(btn_label, key=f"wl_strat_{strategy_key}_{i}_{res['ticker']}", use_container_width=True):
                 if in_wl:
                     remove_from_watchlist(res["ticker"])
                 else:
