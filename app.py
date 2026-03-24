@@ -323,9 +323,10 @@ else:
 # ===========================================================================
 
 @st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
-def load_daily_data_cached(date: str, mkt: str, days: int) -> pd.DataFrame:
-    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용."""
-    return smart_load_daily_data(date, mkt, days)
+def load_daily_data_cached(date: str, mkt: str, days: int, force_refresh: bool = False) -> pd.DataFrame:
+    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용.
+    force_refresh=True: 스냅샷 캐시 무시하고 API에서 직접 fetch (장마감 후 최신가 확보용)"""
+    return smart_load_daily_data(date, mkt, days, force_refresh=force_refresh)
 
 
 @st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
@@ -342,6 +343,7 @@ if config.get("load_clicked"):
     load_daily_data_cached.clear()
     run_screening.clear()
     st.session_state["load_data"] = True
+    st.session_state["force_refresh"] = True  # 버튼 클릭 시 스냅샷 건너뛰고 API 직접 조회
 
 # ── 스케줄러 자동 갱신 감지: _store에 새 데이터가 있으면 daily_df 자동 교체 ──
 # 장마감 후 종가 확정 데이터가 들어오면 버튼 재클릭 없이 화면 자동 최신화
@@ -368,7 +370,8 @@ if st.session_state.get("load_data"):
         if st.session_state.get("_last_sched_refresh") is None and _cached_time:
             st.session_state["_last_sched_refresh"] = _cached_time
     else:
-        daily_df = load_daily_data_cached(date_str, market, supply_days)
+        _force = st.session_state.pop("force_refresh", False)
+        daily_df = load_daily_data_cached(date_str, market, supply_days, force_refresh=_force)
 
     if daily_df.empty:
         st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
