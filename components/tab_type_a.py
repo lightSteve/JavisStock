@@ -96,7 +96,7 @@ def _stock_card_grid(df: pd.DataFrame, badge: str, color: str):
             wl_tickers = {e["ticker"] for e in get_watchlist()}
             in_wl = str(ticker) in wl_tickers
             btn_label = "⭐ 관심 해제" if in_wl else "☆ 관심종목 추가"
-            if st.button(btn_label, key=f"wl_typeA_{badge}_{ticker}", use_container_width=True):
+            if st.button(btn_label, key=f"wl_typeA_{badge}_{i}_{ticker}", use_container_width=True):
                 if in_wl:
                     remove_from_watchlist(str(ticker))
                 else:
