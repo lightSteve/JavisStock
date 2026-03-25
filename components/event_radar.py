@@ -78,6 +78,8 @@ def _is_bio_stock(row: pd.Series) -> bool:
 
 def _render_bio_crash_scanner(daily_df: pd.DataFrame, date_str: str):
     """바이오 종목 급락 스캐너."""
+
+    from data.price_cache import price_cache
     st.markdown("### 🧬 바이오 루머 급락 스캐너")
     st.caption("중요 이벤트를 앞둔 바이오 주식이 출처 불명의 루머로 -10%~-20% 급락하는 패턴")
 
@@ -91,6 +93,11 @@ def _render_bio_crash_scanner(daily_df: pd.DataFrame, date_str: str):
 
     # 급락 바이오 종목 (–5% 이하)
     crash_bio = bio_df[bio_df["등락률"] <= -5].sort_values("등락률", ascending=True)
+    # 현재가 실시간 갱신
+    tickers = crash_bio.index.tolist()
+    if tickers:
+        price_cache.ensure_fresh(tickers)
+        price_cache.apply_to_dataframe(daily_df, tickers)
 
     # 메트릭
     c1, c2, c3 = st.columns(3)
@@ -185,6 +192,8 @@ def _render_bio_crash_scanner(daily_df: pd.DataFrame, date_str: str):
 
 def _render_recovery_zone(daily_df: pd.DataFrame, date_str: str):
     """급락 후 회복 가능성 있는 종목."""
+
+    from data.price_cache import price_cache
     st.markdown("### 📈 회복 베팅 구간")
     st.caption("급락 후 해명 공시/법적 대응/기관 매수 전환 시 회복 베팅 포인트")
 
@@ -196,6 +205,12 @@ def _render_recovery_zone(daily_df: pd.DataFrame, date_str: str):
     if drop_df.empty:
         st.success("✅ 현재 급락 종목이 없습니다.")
         return
+
+    # 현재가 실시간 갱신
+    tickers = drop_df.index.tolist()
+    if tickers:
+        price_cache.ensure_fresh(tickers)
+        price_cache.apply_to_dataframe(daily_df, tickers)
 
     st.markdown(f"**📉 급락 종목: {len(drop_df)}건**")
 
@@ -325,6 +340,8 @@ def _render_recovery_zone(daily_df: pd.DataFrame, date_str: str):
 
 def _render_news_spike(daily_df: pd.DataFrame, date_str: str):
     """단독 기사 출현 + 체결 강도 급증 종목."""
+
+    from data.price_cache import price_cache
     st.markdown("### 📰 단독 뉴스 스파이크")
     st.caption("특정 키워드 포함 단독 기사 출현 직후, 거래량/체결 강도가 급증하는 종목")
 
@@ -333,6 +350,12 @@ def _render_news_spike(daily_df: pd.DataFrame, date_str: str):
     if spike_df.empty:
         st.info("거래대금 급등 종목이 없습니다.")
         return
+
+    # 현재가 실시간 갱신
+    tickers = spike_df.index.tolist()
+    if tickers:
+        price_cache.ensure_fresh(tickers)
+        price_cache.apply_to_dataframe(daily_df, tickers)
 
     # 상위 종목 뉴스 체크
     news_spikes = []
