@@ -179,7 +179,18 @@ def render_my_portfolio(daily_df: pd.DataFrame, date_str: str):
     # ── 포트폴리오 요약 ──
     _render_summary(holdings, daily_df, realtime)
 
+
     st.markdown("---")
+
+    # ── 수급 브리핑 새로고침 버튼 ──
+    if st.button("🧹 수급 브리핑 새로고침", key="pf_supply_refresh"):
+        for h in holdings:
+            clear_integration_cache(h["ticker"])
+            clear_kis_investor_cache(h["ticker"])
+            clear_kis_intraday_cache(h["ticker"])
+        clear_market_investor_cache()
+        st.success("수급 데이터가 새로고침되었습니다. (최신 데이터로 재분석)")
+        st.rerun()
 
     # ── 보유종목 브리핑 ──
     _render_portfolio_briefing(holdings, realtime)

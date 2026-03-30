@@ -15,7 +15,26 @@ def render_sector_heatmap(daily_df: pd.DataFrame):
     섹터별 평균 등락률 Treemap + 수급 TOP 섹터 하이라이트.
     daily_df: build_daily_dataset() 결과 (업종, 등락률, 수급 컬럼 포함)
     """
+
+    import datetime as _dt
     st.markdown("## 🗺️ 섹터 히트맵")
+
+    # 마지막 갱신 시간 표시
+    last_update_key = "sector_heatmap_last_update"
+    if last_update_key not in st.session_state:
+        st.session_state[last_update_key] = None
+
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("🔄 데이터로드 & 분석시작", key="sector_heatmap_reload"):
+            st.session_state[last_update_key] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.experimental_rerun()
+    with col2:
+        last_time = st.session_state[last_update_key]
+        if last_time:
+            st.info(f"마지막 갱신: {last_time}")
+        else:
+            st.info("아직 데이터가 갱신되지 않았습니다.")
 
     if daily_df.empty or "업종" not in daily_df.columns:
         st.warning("섹터 데이터가 없습니다. 데이터를 먼저 로드해주세요.")

@@ -40,8 +40,28 @@ _NEWS_SPIKE_KEYWORDS = [
 
 def render_event_radar(daily_df: pd.DataFrame, date_str: str):
     """Panel 4: Event-Driven Radar 렌더링."""
+
+    import datetime as _dt
     st.markdown("## 🚨 Event-Driven Radar")
     st.caption("바이오 급락 스캔 · 회복 베팅 구간 · 뉴스 스파이크")
+
+    # 마지막 갱신 시간 표시
+    last_update_key = "event_radar_last_update"
+    if last_update_key not in st.session_state:
+        st.session_state[last_update_key] = None
+
+    # 데이터로드 & 분석시작 버튼
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("🔄 데이터로드 & 분석시작", key="event_radar_reload"):
+            st.session_state[last_update_key] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.experimental_rerun()
+    with col2:
+        last_time = st.session_state[last_update_key]
+        if last_time:
+            st.info(f"마지막 갱신: {last_time}")
+        else:
+            st.info("아직 데이터가 갱신되지 않았습니다.")
 
     if daily_df.empty:
         st.info("데이터가 없습니다.")

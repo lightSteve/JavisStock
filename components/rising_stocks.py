@@ -34,7 +34,25 @@ _COLS_PER_ROW = 3
 
 def render_rising_stocks(daily_df: pd.DataFrame) -> Optional[str]:
     """상승 종목 분석 메인. 선택한 종목 티커를 반환."""
+    import datetime as _dt
     st.markdown("## 📊 상승 종목 분석")
+
+    # 마지막 갱신 시간 표시
+    last_update_key = "rising_stocks_last_update"
+    if last_update_key not in st.session_state:
+        st.session_state[last_update_key] = None
+
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("🔄 데이터로드 & 분석시작", key="rising_stocks_reload"):
+            st.session_state[last_update_key] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.experimental_rerun()
+    with col2:
+        last_time = st.session_state[last_update_key]
+        if last_time:
+            st.info(f"마지막 갱신: {last_time}")
+        else:
+            st.info("아직 데이터가 갱신되지 않았습니다.")
 
     if daily_df.empty:
         st.info("데이터가 없습니다.")
