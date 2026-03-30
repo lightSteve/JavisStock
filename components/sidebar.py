@@ -16,9 +16,11 @@ _WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
 
 def _get_default_date() -> datetime.date:
     """분석 기준일 기본값: 오늘 날짜 (주말이면 가장 최근 평일)."""
-    dt = datetime.date.today()
-    while dt.weekday() >= 5:
-        dt -= datetime.timedelta(days=1)
+    import datetime as _dt
+    from data.fetcher import get_latest_trading_date
+    # get_latest_trading_date()는 YYYYMMDD 문자열 반환
+    date_str = get_latest_trading_date()
+    dt = _dt.datetime.strptime(date_str, "%Y%m%d").date()
     return dt
 
 
