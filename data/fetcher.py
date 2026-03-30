@@ -1,3 +1,32 @@
+# ---------------------------------------------------------------------------
+# 장중/마감 모드 판별 유틸리티
+# ---------------------------------------------------------------------------
+
+def get_market_mode(now=None):
+    """
+    현재 시각 기준 장중/마감 모드 반환
+    - 'open': 장중 (09:00~15:30)
+    - 'closed': 장마감 (15:30~익일 09:00, 주말/공휴일)
+    """
+    import datetime as _dt
+    if now is None:
+        now = _dt.datetime.now()
+    weekday = now.weekday()
+    # 주말
+    if weekday >= 5:
+        return 'closed'
+    # 공휴일(간단히 처리: 추후 보완)
+    # TODO: 공휴일 체크 필요시 추가
+    t = now.time()
+    if t >= _dt.time(9, 0) and t < _dt.time(15, 30):
+        return 'open'
+    return 'closed'
+
+def is_market_open(now=None):
+    return get_market_mode(now) == 'open'
+
+def is_market_closed(now=None):
+    return get_market_mode(now) == 'closed'
 """
 데이터 수집 모듈 (Data Fetcher)
 ══════════════════════════════════════════════════════════════════════════════

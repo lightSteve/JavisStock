@@ -1,3 +1,4 @@
+from data.fetcher import get_market_mode, is_market_open, is_market_closed
 """
 📊 TrendCatcher – 주식 모멘텀 & 수급 분석 대시보드
 메인 Streamlit 앱
@@ -322,11 +323,24 @@ else:
 # 데이터 로딩 (스케줄러 우선 → 캐시 → API 순)
 # ===========================================================================
 
-@st.cache_data(ttl=3600, show_spinner="📡 데이터 로딩 중... (스냅샷 있으면 즉시 로드)")
-def load_daily_data_cached(date: str, mkt: str, days: int, force_refresh: bool = False) -> pd.DataFrame:
-    """스냅샷 우선 → 없으면 API fetch. st.cache_data 로 세션 내 재사용.
-    force_refresh=True: 스냅샷 캐시 무시하고 API에서 직접 fetch (장마감 후 최신가 확보용)"""
-    return smart_load_daily_data(date, mkt, days, force_refresh=force_refresh)
+
+# 장중/마감 모드에 따라 캐시 TTL 및 force_refresh 동적 적용
+def load_daily_data_dynamic(date: str, mkt: str, days: int) -> pd.DataFrame:
+    import datetime as _dt
+    now = _dt.datetime.now()
+    mode = get_market_mode(now)
+    if mode == 'open':
+        # 장중: 실시간, 캐시 TTL 60초, force_refresh=True
+        @st.cache_data(ttl=60, show_spinner="📡 실시간 데이터 로딩 중...")
+        def _load(date, mkt, days):
+            return smart_load_daily_data(date, mkt, days, force_refresh=True)
+        return _load(date, mkt, days)
+    else:
+        # 마감: 스냅샷, 캐시 TTL 3600초, force_refresh=False
+        @st.cache_data(ttl=3600, show_spinner="📡 마감 데이터 로딩 중... (스냅샷)")
+        def _load(date, mkt, days):
+            return smart_load_daily_data(date, mkt, days, force_refresh=False)
+        return _load(date, mkt, days)
 
 
 @st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
@@ -340,7 +354,7 @@ def run_screening(daily_data_json: str, date: str):
 
 # 캐시 함수 정의 완료 — 이제 로드 버튼 처리 가능
 if config.get("load_clicked"):
-    load_daily_data_cached.clear()
+    # load_daily_data_dynamic.clear()  # 동적 함수이므로 별도 clear 불필요
     run_screening.clear()
     st.session_state["load_data"] = True
     st.session_state["force_refresh"] = True  # 버튼 클릭 시 스냅샷 건너뛰고 API 직접 조회
@@ -357,9 +371,10 @@ if (st.session_state.get("load_data")
     # 새로운 갱신 감지 → session_state 교체 후 rerun
     st.session_state["daily_df"] = _sched_df
     st.session_state["_last_sched_refresh"] = _sched_time
-    load_daily_data_cached.clear()
+    # load_daily_data_dynamic.clear()  # 동적 함수이므로 별도 clear 불필요
     run_screening.clear()
     st.rerun()
+
 
 if st.session_state.get("load_data"):
     # 스케줄러에 이미 데이터가 있으면 즉시 사용
@@ -370,8 +385,7 @@ if st.session_state.get("load_data"):
         if st.session_state.get("_last_sched_refresh") is None and _cached_time:
             st.session_state["_last_sched_refresh"] = _cached_time
     else:
-        _force = st.session_state.pop("force_refresh", False)
-        daily_df = load_daily_data_cached(date_str, market, supply_days, force_refresh=_force)
+        daily_df = load_daily_data_dynamic(date_str, market, supply_days)
 
     if daily_df.empty:
         st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
