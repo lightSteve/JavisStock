@@ -1,3 +1,78 @@
+from analysis.exchange import fetch_usdkrw_history, calc_bollinger_macd
+import plotly.graph_objects as go
+# ===================== 환율 실시간 메트릭 및 추세 차트 =====================
+# 환율 데이터 수집 (장중/마감 캐싱 정책 적용)
+import datetime as _dt
+mode = get_market_mode()
+if mode == 'open':
+    # 장중: 1분 캐시
+    @st.cache_data(ttl=60)
+    def get_usdkrw():
+        return fetch_usdkrw_history(period="6mo")
+else:
+    # 마감: 1시간 캐시
+    @st.cache_data(ttl=3600)
+    def get_usdkrw():
+        return fetch_usdkrw_history(period="6mo")
+usdkrw_df = get_usdkrw()
+
+# KOSPI 지수 데이터 (동일 기간)
+@st.cache_data(ttl=3600)
+def get_kospi():
+    df = get_index_ohlcv("KOSPI", 130)
+    return df
+kospi_df = get_kospi()
+
+# 환율 메트릭 (최신값, 전일대비)
+if not usdkrw_df.empty:
+    last = usdkrw_df["환율"].iloc[-1]
+    prev = usdkrw_df["환율"].iloc[-2] if len(usdkrw_df) > 1 else last
+    diff = last - prev
+    diff_pct = (diff / prev) * 100 if prev else 0
+    col_fx, col_fx2 = st.columns([1, 2])
+    with col_fx:
+        st.metric("USD/KRW 환율", f"{last:,.2f}", f"{diff:+.2f} ({diff_pct:+.2f}%)")
+    with col_fx2:
+        st.caption("최근 환율 변동 및 추세 분석 (볼린저밴드·MACD·KOSPI 오버레이)")
+
+    # 볼린저밴드, MACD 계산
+    ind = calc_bollinger_macd(usdkrw_df)
+    # Plotly 차트
+    fig = go.Figure()
+    # 환율 + 볼린저밴드
+    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=usdkrw_df["환율"], name="USD/KRW", line=dict(color="#2563eb", width=2)))
+    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["ma"], name="20일선", line=dict(color="#6366f1", dash="dot")))
+    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["upper"], name="볼린저 상단", line=dict(color="#f59e42", width=1, dash="dash"), opacity=0.4))
+    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["lower"], name="볼린저 하단", line=dict(color="#f59e42", width=1, dash="dash"), opacity=0.4))
+    # KOSPI 오버레이 (우측 Y축)
+    if not kospi_df.empty:
+        kospi = kospi_df["종가"]
+        # 날짜 정렬 및 맞추기
+        kospi = kospi[kospi.index.isin(usdkrw_df.index)]
+        fig.add_trace(go.Scatter(x=kospi.index, y=kospi, name="KOSPI", yaxis="y2", line=dict(color="#dc2626", width=1.5, dash="dot")))
+        fig.update_layout(yaxis2=dict(title="KOSPI", overlaying="y", side="right", showgrid=False))
+    fig.update_layout(
+        title="USD/KRW 환율 & 볼린저밴드 + KOSPI",
+        yaxis_title="환율",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(t=40, l=10, r=10, b=10),
+        height=380,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # MACD 서브플롯
+    fig_macd = go.Figure()
+    fig_macd.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["macd"], name="MACD", line=dict(color="#6366f1")))
+    fig_macd.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["signal"], name="Signal", line=dict(color="#f59e42")))
+    fig_macd.add_trace(go.Bar(x=usdkrw_df.index, y=ind["hist"], name="Hist", marker_color="#a5b4fc", opacity=0.5))
+    fig_macd.update_layout(
+        title="USD/KRW MACD",
+        yaxis_title="MACD",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(t=30, l=10, r=10, b=10),
+        height=220,
+    )
+    st.plotly_chart(fig_macd, use_container_width=True)
 from data.fetcher import get_market_mode, is_market_open, is_market_closed
 """
 📊 TrendCatcher – 주식 모멘텀 & 수급 분석 대시보드
