@@ -35,9 +35,11 @@ if isinstance(kospi_df.columns, pd.MultiIndex):
     kospi_df.columns = kospi_df.columns.get_level_values(0)
 kospi_df = kospi_df[['Close']].copy()
 
-# 2. 날짜 기준 merge (공통 날짜만)
-merged = usdkrw_df.join(spx_df, how='inner', lsuffix='_usdkrw', rsuffix='_spx')
-merged = merged.join(kospi_df, how='inner', rsuffix='_kospi')
+
+# 2. 날짜 기준 merge (공통 날짜만) 및 컬럼명 명확화
+merged = usdkrw_df.rename(columns={'Close': 'Close_usdkrw'})
+merged = merged.join(spx_df.rename(columns={'Close': 'Close_spx'}), how='inner')
+merged = merged.join(kospi_df.rename(columns={'Close': 'Close_kospi'}), how='inner')
 merged = merged.dropna()
 
 # 3. 환산 지수 계산
