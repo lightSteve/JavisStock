@@ -1,3 +1,4 @@
+from data.fetcher import get_market_mode, is_market_open, is_market_closed
 from analysis.exchange import fetch_usdkrw_history, calc_bollinger_macd
 import plotly.graph_objects as go
 # ===================== 환율 실시간 메트릭 및 추세 차트 =====================
