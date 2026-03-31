@@ -54,17 +54,10 @@ for col in ['Close_spx', 'KRW_S&P500', 'Close_kospi', 'USD_KOSPI']:
 # 5. Dual Chart 시각화 및 Gap 강조
 st.markdown("## 환율 반영 실정 지수 비교")
 import plotly.graph_objects as go
-fig = go.Figure()
-# S&P500 (USD)
-fig.add_trace(go.Scatter(x=merged.index, y=merged['Close_spx_norm'], mode='lines', name='S&P500(USD)', line=dict(color='#2563eb', width=2)))
-# S&P500 (KRW 환산)
-fig.add_trace(go.Scatter(x=merged.index, y=merged['KRW_S&P500_norm'], mode='lines', name='S&P500(원화환산)', line=dict(color='#f59e42', width=2, dash='dot')))
-# KOSPI (KRW)
-fig.add_trace(go.Scatter(x=merged.index, y=merged['Close_kospi_norm'], mode='lines', name='KOSPI(KRW)', line=dict(color='#10b981', width=2)))
-# KOSPI (USD 환산)
-fig.add_trace(go.Scatter(x=merged.index, y=merged['USD_KOSPI_norm'], mode='lines', name='KOSPI(달러환산)', line=dict(color='#e11d48', width=2, dash='dot')))
 
-# Gap 강조(음영)
+# --- 차트 스타일 및 가독성 개선 ---
+fig = go.Figure()
+# 1. Fill area(음영) 먼저 추가 (opacity 0.1)
 fig.add_traces([
     go.Scatter(
         x=merged.index,
@@ -74,7 +67,7 @@ fig.add_traces([
         showlegend=False,
         hoverinfo='skip',
         fill='tonexty',
-        fillcolor='rgba(245,158,66,0.08)',
+        fillcolor='rgba(245,158,66,0.05)',  # orange, 더 연하게
     ),
     go.Scatter(
         x=merged.index,
@@ -84,9 +77,44 @@ fig.add_traces([
         showlegend=False,
         hoverinfo='skip',
         fill='tonexty',
-        fillcolor='rgba(37,99,235,0.08)',
+        fillcolor='rgba(37,99,235,0.05)',  # blue, 더 연하게
     ),
 ])
+# 2. KOSPI(달러환산) - 강렬한 빨간색 점선
+fig.add_trace(go.Scatter(
+    x=merged.index, y=merged['USD_KOSPI_norm'],
+    mode='lines', name='KOSPI(달러환산)',
+    line=dict(color='#e11d48', width=2, dash='dot'),
+    legendgroup='kospiusd',
+    opacity=1.0,
+    ))
+# 3. KOSPI(KRW) - 진한 초록 실선
+fig.add_trace(go.Scatter(
+    x=merged.index, y=merged['Close_kospi_norm'],
+    mode='lines', name='KOSPI(KRW)',
+    line=dict(color='#065c2f', width=3),
+    legendgroup='kospikr',
+    opacity=1.0,
+    ))
+# 4. S&P500(원화환산) - 밝은 오렌지 점선
+fig.add_trace(go.Scatter(
+    x=merged.index, y=merged['KRW_S&P500_norm'],
+    mode='lines', name='S&P500(원화환산)',
+    line=dict(color='#f59e42', width=3, dash='dash'),
+    legendgroup='spxkrw',
+    opacity=1.0,
+    ))
+# 5. S&P500(USD) - 진한 파란 실선(가장 두껍게, 맨 위)
+fig.add_trace(go.Scatter(
+    x=merged.index, y=merged['Close_spx_norm'],
+    mode='lines', name='S&P500(USD)',
+    line=dict(color='#1a237e', width=5),
+    legendgroup='spxusd',
+    opacity=1.0,
+    ))
+# 6. Y=1.0 기준선(굵은 회색)
+fig.add_shape(type='line', x0=merged.index[0], x1=merged.index[-1], y0=1.0, y1=1.0,
+              line=dict(color='#888', width=2, dash='dot'))
 
 fig.update_layout(
     title='S&P500/KOSPI 환율 반영 실정 지수 (정규화)',
@@ -95,6 +123,8 @@ fig.update_layout(
     height=480,
     legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
     margin=dict(t=60, l=10, r=10, b=10),
+    hovermode='x unified',
+    plot_bgcolor='#fff',
 )
 st.plotly_chart(fig, use_container_width=True)
 
