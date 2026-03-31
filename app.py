@@ -18,7 +18,12 @@ def get_usdkrw():
     df.index = pd.to_datetime(df.index).tz_localize(None)
     return df
 
-usdkrw_df = get_usdkrw().dropna()
+
+raw_df = get_usdkrw().dropna()
+# yfinance KRW=X는 MultiIndex 컬럼이므로 1중 컬럼으로 변환
+if isinstance(raw_df.columns, pd.MultiIndex):
+    raw_df.columns = raw_df.columns.get_level_values(0)
+usdkrw_df = raw_df
 
 if usdkrw_df.empty or 'Close' not in usdkrw_df.columns:
     st.error("USD/KRW 환율 데이터가 없습니다. 네트워크 또는 API 오류일 수 있습니다.")
