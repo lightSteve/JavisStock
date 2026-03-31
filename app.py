@@ -40,10 +40,19 @@ kospi_df = kospi_df[['Close']].copy()
 merged = usdkrw_df.rename(columns={'Close': 'Close_usdkrw'})
 merged = merged.join(spx_df.rename(columns={'Close': 'Close_spx'}), how='inner')
 merged = merged.join(kospi_df.rename(columns={'Close': 'Close_kospi'}), how='inner')
+
 merged = merged.dropna()
 
-# 3. 환산 지수 계산
+# 데이터가 비었는지 체크
+if merged.empty:
+    st.error("공통 날짜에 데이터가 없습니다. 데이터 소스를 확인하세요.")
+    st.stop()
+
+
+# 3. 환산 지수 계산 (공식 명확화)
+# S&P500(원화환산): 미국 S&P500 × 현재 환율 (환율이 오르면 더 위)
 merged['KRW_S&P500'] = merged['Close_spx'] * merged['Close_usdkrw']
+# KOSPI(달러환산): 한국 KOSPI ÷ 현재 환율 (환율이 오르면 더 아래)
 merged['USD_KOSPI'] = merged['Close_kospi'] / merged['Close_usdkrw']
 
 
