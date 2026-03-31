@@ -33,10 +33,11 @@ else:
     usdkrw_df.index = pd.to_datetime(usdkrw_df.index).tz_localize(None)
     kospi_df.index = pd.to_datetime(kospi_df.index).tz_localize(None)
     # 3. 날짜 기준 병합 (외부 join, 결측치 발생 가능)
-    merged = pd.concat([
-        usdkrw_df["환율"].rename("환율"),
-        kospi_df["종가"].rename("KOSPI")
-    ], axis=1)
+    merged = pd.concat(
+        [usdkrw_df["환율"], kospi_df["종가"]],
+        axis=1,
+        keys=["환율", "KOSPI"]
+    )
     # 4. 결측치 전처리 (ffill, dropna)
     merged = merged.ffill().dropna()
     # 5. 지표 계산 (볼린저밴드, MACD)
