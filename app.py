@@ -32,7 +32,9 @@ if not usdkrw_df.empty:
     last = usdkrw_df["환율"].iloc[-1]
     prev = usdkrw_df["환율"].iloc[-2] if len(usdkrw_df) > 1 else last
     diff = last - prev
-    diff_pct = (diff / prev) * 100 if prev else 0
+    # prev가 Series일 경우 첫 번째 값만 사용
+    prev_val = prev.iloc[0] if hasattr(prev, 'iloc') else prev
+    diff_pct = (diff / prev_val) * 100 if prev_val else 0
     col_fx, col_fx2 = st.columns([1, 2])
     with col_fx:
         st.metric("USD/KRW 환율", f"{last:,.2f}", f"{diff:+.2f} ({diff_pct:+.2f}%)")
