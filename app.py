@@ -8,6 +8,7 @@ from data.fetcher import get_index_ohlcv
 
 # ===================== USD/KRW 환율 전용 심플 대시보드 =====================
 import yfinance as yf
+import numpy as np
 import pandas as pd
 import plotly.express as px
 
@@ -24,8 +25,12 @@ if usdkrw_df.empty or 'Close' not in usdkrw_df.columns:
 else:
     last = usdkrw_df['Close'].iloc[-1]
     prev = usdkrw_df['Close'].iloc[-2] if len(usdkrw_df) > 1 else last
+    try:
+        prev = float(prev)
+    except Exception:
+        prev = 0.0
     diff = last - prev
-    diff_pct = (diff / prev * 100) if prev else 0.0
+    diff_pct = (diff / prev * 100) if prev != 0 and not np.isnan(prev) else 0.0
     st.metric("USD/KRW 환율", f"{last:,.2f}", f"{diff:+.2f} ({diff_pct:+.2f}%)")
 
     # 최근 6개월~1년치 환율 추세선
