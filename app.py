@@ -23,14 +23,20 @@ usdkrw_df = get_usdkrw().dropna()
 if usdkrw_df.empty or 'Close' not in usdkrw_df.columns:
     st.error("USD/KRW 환율 데이터가 없습니다. 네트워크 또는 API 오류일 수 있습니다.")
 else:
-    last = usdkrw_df['Close'].iloc[-1]
-    prev = usdkrw_df['Close'].iloc[-2] if len(usdkrw_df) > 1 else last
-    try:
-        prev = float(prev)
-    except Exception:
-        prev = 0.0
-    diff = last - prev
-    diff_pct = (diff / prev * 100) if prev != 0 and not np.isnan(prev) else 0.0
+    def safe_float(val):
+        try:
+            if isinstance(val, (float, int)):
+                return float(val)
+            if hasattr(val, 'item'):
+                return float(val.item())
+            return float(val)
+        except Exception:
+            return 0.0
+
+    last = safe_float(usdkrw_df['Close'].iloc[-1])
+    prev = safe_float(usdkrw_df['Close'].iloc[-2]) if len(usdkrw_df) > 1 else last
+    diff = float(last - prev)
+    diff_pct = float((diff / prev * 100) if prev != 0 and not np.isnan(prev) else 0.0)
     st.metric("USD/KRW 환율", f"{last:,.2f}", f"{diff:+.2f} ({diff_pct:+.2f}%)")
 
     # 최근 6개월~1년치 환율 추세선
