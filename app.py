@@ -4,34 +4,46 @@ from analysis.exchange import fetch_usdkrw_history, calc_bollinger_macd
 import plotly.graph_objects as go
 # get_index_ohlcv를 최상단에서 import
 from data.fetcher import get_index_ohlcv
-# ===================== 환율 실시간 메트릭 및 추세 차트 =====================
-# 환율 데이터 수집 (장중/마감 캐싱 정책 적용)
+
+# ===================== 환율 실시간 메트릭 및 추세 차트 (버그 방지 리팩터링) =====================
 import datetime as _dt
+import pandas as pd
 mode = get_market_mode()
 if mode == 'open':
-    # 장중: 1분 캐시
     @st.cache_data(ttl=60)
     def get_usdkrw():
         return fetch_usdkrw_history(period="6mo")
 else:
-    # 마감: 1시간 캐시
     @st.cache_data(ttl=3600)
     def get_usdkrw():
         return fetch_usdkrw_history(period="6mo")
-usdkrw_df = get_usdkrw()
-
-# KOSPI 지수 데이터 (동일 기간)
 @st.cache_data(ttl=3600)
 def get_kospi():
-    df = get_index_ohlcv("KOSPI", 130)
-    return df
+    return get_index_ohlcv("KOSPI", 130)
+usdkrw_df = get_usdkrw()
 kospi_df = get_kospi()
 
-# 환율 메트릭 (최신값, 전일대비)
-if not usdkrw_df.empty:
-    last = usdkrw_df["환율"].iloc[-1]
-    prev = usdkrw_df["환율"].iloc[-2] if len(usdkrw_df) > 1 else last
-    # NaN/None 방어 처리
+# 1. 데이터 수집 검증 및 예외 처리
+if usdkrw_df.empty:
+    st.error("USD/KRW 환율 데이터가 없습니다. 네트워크 또는 API 오류일 수 있습니다.")
+elif kospi_df.empty:
+    st.error("KOSPI 지수 데이터가 없습니다. 네트워크 또는 API 오류일 수 있습니다.")
+else:
+    # 2. 인덱스 통일 (timezone 제거, 날짜만)
+    usdkrw_df.index = pd.to_datetime(usdkrw_df.index).tz_localize(None)
+    kospi_df.index = pd.to_datetime(kospi_df.index).tz_localize(None)
+    # 3. 날짜 기준 병합 (외부 join, 결측치 발생 가능)
+    merged = pd.DataFrame({
+        "환율": usdkrw_df["환율"],
+        "KOSPI": kospi_df["종가"] if "종가" in kospi_df.columns else pd.NA,
+    })
+    # 4. 결측치 전처리 (ffill, dropna)
+    merged = merged.ffill().dropna()
+    # 5. 지표 계산 (볼린저밴드, MACD)
+    ind = calc_bollinger_macd(merged)
+    # 6. 메트릭 계산 (최신값, 전일대비)
+    last = merged["환율"].iloc[-1]
+    prev = merged["환율"].iloc[-2] if len(merged) > 1 else last
     def safe_float(x):
         try:
             if x is None or (hasattr(x, 'isna') and x.isna()):
@@ -48,22 +60,15 @@ if not usdkrw_df.empty:
         st.metric("USD/KRW 환율", f"{last:,.2f}", f"{diff:+.2f} ({diff_pct:+.2f}%)")
     with col_fx2:
         st.caption("최근 환율 변동 및 추세 분석 (볼린저밴드·MACD·KOSPI 오버레이)")
-
-    # 볼린저밴드, MACD 계산
-    ind = calc_bollinger_macd(usdkrw_df)
-    # Plotly 차트
+    # 7. Plotly 차트 (결측치 없는 병합 데이터 기준)
     fig = go.Figure()
-    # 환율 + 볼린저밴드
-    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=usdkrw_df["환율"], name="USD/KRW", line=dict(color="#2563eb", width=2)))
-    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["ma"], name="20일선", line=dict(color="#6366f1", dash="dot")))
-    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["upper"], name="볼린저 상단", line=dict(color="#f59e42", width=1, dash="dash"), opacity=0.4))
-    fig.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["lower"], name="볼린저 하단", line=dict(color="#f59e42", width=1, dash="dash"), opacity=0.4))
+    fig.add_trace(go.Scatter(x=merged.index, y=merged["환율"], name="USD/KRW", line=dict(color="#2563eb", width=2)))
+    fig.add_trace(go.Scatter(x=merged.index, y=ind["ma"], name="20일선", line=dict(color="#6366f1", dash="dot")))
+    fig.add_trace(go.Scatter(x=merged.index, y=ind["upper"], name="볼린저 상단", line=dict(color="#f59e42", width=1, dash="dash"), opacity=0.4))
+    fig.add_trace(go.Scatter(x=merged.index, y=ind["lower"], name="볼린저 하단", line=dict(color="#f59e42", width=1, dash="dash"), opacity=0.4))
     # KOSPI 오버레이 (우측 Y축)
-    if not kospi_df.empty:
-        kospi = kospi_df["종가"]
-        # 날짜 정렬 및 맞추기
-        kospi = kospi[kospi.index.isin(usdkrw_df.index)]
-        fig.add_trace(go.Scatter(x=kospi.index, y=kospi, name="KOSPI", yaxis="y2", line=dict(color="#dc2626", width=1.5, dash="dot")))
+    if "KOSPI" in merged.columns:
+        fig.add_trace(go.Scatter(x=merged.index, y=merged["KOSPI"], name="KOSPI", yaxis="y2", line=dict(color="#dc2626", width=1.5, dash="dot")))
         fig.update_layout(yaxis2=dict(title="KOSPI", overlaying="y", side="right", showgrid=False))
     fig.update_layout(
         title="USD/KRW 환율 & 볼린저밴드 + KOSPI",
@@ -73,12 +78,11 @@ if not usdkrw_df.empty:
         height=380,
     )
     st.plotly_chart(fig, use_container_width=True)
-
-    # MACD 서브플롯
+    # 8. MACD 서브플롯
     fig_macd = go.Figure()
-    fig_macd.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["macd"], name="MACD", line=dict(color="#6366f1")))
-    fig_macd.add_trace(go.Scatter(x=usdkrw_df.index, y=ind["signal"], name="Signal", line=dict(color="#f59e42")))
-    fig_macd.add_trace(go.Bar(x=usdkrw_df.index, y=ind["hist"], name="Hist", marker_color="#a5b4fc", opacity=0.5))
+    fig_macd.add_trace(go.Scatter(x=merged.index, y=ind["macd"], name="MACD", line=dict(color="#6366f1")))
+    fig_macd.add_trace(go.Scatter(x=merged.index, y=ind["signal"], name="Signal", line=dict(color="#f59e42")))
+    fig_macd.add_trace(go.Bar(x=merged.index, y=ind["hist"], name="Hist", marker_color="#a5b4fc", opacity=0.5))
     fig_macd.update_layout(
         title="USD/KRW MACD",
         yaxis_title="MACD",
