@@ -2,6 +2,8 @@ import streamlit as st
 from data.fetcher import get_market_mode, is_market_open, is_market_closed
 from analysis.exchange import fetch_usdkrw_history, calc_bollinger_macd
 import plotly.graph_objects as go
+# get_index_ohlcv를 최상단에서 import
+from data.fetcher import get_index_ohlcv
 # ===================== 환율 실시간 메트릭 및 추세 차트 =====================
 # 환율 데이터 수집 (장중/마감 캐싱 정책 적용)
 import datetime as _dt
