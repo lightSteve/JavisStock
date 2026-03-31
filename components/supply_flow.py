@@ -50,10 +50,17 @@ def render_supply_flow(daily_df: pd.DataFrame) -> Optional[str]:
         st.warning("수급 데이터가 없습니다. 데이터를 다시 로드해 주세요.")
         return None
 
+
     # 일반 종목만 (ETF/ETN 제외)
     df = daily_df.copy()
     if "종목유형" in df.columns:
         df = df[df["종목유형"] == "stock"]
+
+    # ─── 항상 최신 가격 반영 ───────────────────────────────
+    from data.price_cache import price_cache as _pc
+    tickers = df.index.tolist()
+    _pc.ensure_fresh(tickers)
+    _pc.apply_to_dataframe(df, tickers)
 
     # ─── 수급 대시보드 ─────────────────────────────────────────
     _render_supply_dashboard(df)
