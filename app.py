@@ -1,9 +1,8 @@
 import streamlit as st
-from data.fetcher import get_market_mode, is_market_open, is_market_closed
-from analysis.exchange import fetch_usdkrw_history, calc_bollinger_macd
+
+# 환율 반영 실정 지수 기능에 필요한 패키지
 import plotly.graph_objects as go
-# get_index_ohlcv를 최상단에서 import
-from data.fetcher import get_index_ohlcv
+
 
 
 # ===================== USD/KRW 환율 전용 심플 대시보드 =====================
@@ -19,11 +18,101 @@ def get_usdkrw():
     return df
 
 
-raw_df = get_usdkrw().dropna()
-# yfinance KRW=X는 MultiIndex 컬럼이므로 1중 컬럼으로 변환
-if isinstance(raw_df.columns, pd.MultiIndex):
-    raw_df.columns = raw_df.columns.get_level_values(0)
-usdkrw_df = raw_df
+
+# 1. 데이터 수집: 환율, S&P500, KOSPI
+raw_usdkrw = get_usdkrw().dropna()
+if isinstance(raw_usdkrw.columns, pd.MultiIndex):
+    raw_usdkrw.columns = raw_usdkrw.columns.get_level_values(0)
+usdkrw_df = raw_usdkrw[['Close']].copy()
+
+spx_df = yf.download('^GSPC', period='1y', progress=False)
+if isinstance(spx_df.columns, pd.MultiIndex):
+    spx_df.columns = spx_df.columns.get_level_values(0)
+spx_df = spx_df[['Close']].copy()
+
+kospi_df = yf.download('^KS11', period='1y', progress=False)
+if isinstance(kospi_df.columns, pd.MultiIndex):
+    kospi_df.columns = kospi_df.columns.get_level_values(0)
+kospi_df = kospi_df[['Close']].copy()
+
+# 2. 날짜 기준 merge (공통 날짜만)
+merged = usdkrw_df.join(spx_df, how='inner', lsuffix='_usdkrw', rsuffix='_spx')
+merged = merged.join(kospi_df, how='inner', rsuffix='_kospi')
+merged = merged.dropna()
+
+# 3. 환산 지수 계산
+merged['KRW_S&P500'] = merged['Close_spx'] * merged['Close_usdkrw']
+merged['USD_KOSPI'] = merged['Close_kospi'] / merged['Close_usdkrw']
+
+
+# 4. 정규화 (첫날 기준)
+for col in ['Close_spx', 'KRW_S&P500', 'Close_kospi', 'USD_KOSPI']:
+    merged[col + '_norm'] = merged[col] / merged[col].iloc[0]
+
+# 5. Dual Chart 시각화 및 Gap 강조
+st.markdown("## 환율 반영 실정 지수 비교")
+import plotly.graph_objects as go
+fig = go.Figure()
+# S&P500 (USD)
+fig.add_trace(go.Scatter(x=merged.index, y=merged['Close_spx_norm'], mode='lines', name='S&P500(USD)', line=dict(color='#2563eb', width=2)))
+# S&P500 (KRW 환산)
+fig.add_trace(go.Scatter(x=merged.index, y=merged['KRW_S&P500_norm'], mode='lines', name='S&P500(원화환산)', line=dict(color='#f59e42', width=2, dash='dot')))
+# KOSPI (KRW)
+fig.add_trace(go.Scatter(x=merged.index, y=merged['Close_kospi_norm'], mode='lines', name='KOSPI(KRW)', line=dict(color='#10b981', width=2)))
+# KOSPI (USD 환산)
+fig.add_trace(go.Scatter(x=merged.index, y=merged['USD_KOSPI_norm'], mode='lines', name='KOSPI(달러환산)', line=dict(color='#e11d48', width=2, dash='dot')))
+
+# Gap 강조(음영)
+fig.add_traces([
+    go.Scatter(
+        x=merged.index,
+        y=merged['KRW_S&P500_norm'],
+        mode='lines',
+        line=dict(width=0),
+        showlegend=False,
+        hoverinfo='skip',
+        fill='tonexty',
+        fillcolor='rgba(245,158,66,0.08)',
+    ),
+    go.Scatter(
+        x=merged.index,
+        y=merged['Close_spx_norm'],
+        mode='lines',
+        line=dict(width=0),
+        showlegend=False,
+        hoverinfo='skip',
+        fill='tonexty',
+        fillcolor='rgba(37,99,235,0.08)',
+    ),
+])
+
+fig.update_layout(
+    title='S&P500/KOSPI 환율 반영 실정 지수 (정규화)',
+    xaxis_title='날짜',
+    yaxis_title='정규화 지수(1.0=기준일)',
+    height=480,
+    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    margin=dict(t=60, l=10, r=10, b=10),
+)
+st.plotly_chart(fig, use_container_width=True)
+
+# 6. Gap 분석 리포트
+st.markdown("### 환율 효과 분석 리포트")
+gap_spx = merged['KRW_S&P500_norm'].iloc[-1] - merged['Close_spx_norm'].iloc[-1]
+gap_kospi = merged['USD_KOSPI_norm'].iloc[-1] - merged['Close_kospi_norm'].iloc[-1]
+if gap_spx > 0.01:
+    st.success(f"최근 1년간 환율 상승으로 S&P500의 원화 기준 수익률이 미국 달러 기준보다 **{gap_spx*100:.2f}% 더 높게** 방어되고 있습니다. (Boost)")
+elif gap_spx < -0.01:
+    st.error(f"최근 1년간 환율 하락으로 S&P500의 원화 기준 수익률이 미국 달러 기준보다 **{abs(gap_spx)*100:.2f}% 더 낮게** 깎이고 있습니다. (Drag)")
+else:
+    st.info("최근 1년간 환율 변화가 S&P500의 원화 기준 수익률에 큰 영향을 주지 않았습니다.")
+
+if gap_kospi > 0.01:
+    st.success(f"최근 1년간 환율 하락으로 KOSPI의 달러 기준 수익률이 원화 기준보다 **{gap_kospi*100:.2f}% 더 높게** 방어되고 있습니다. (Boost)")
+elif gap_kospi < -0.01:
+    st.error(f"최근 1년간 환율 상승으로 KOSPI의 달러 기준 수익률이 원화 기준보다 **{abs(gap_kospi)*100:.2f}% 더 낮게** 깎이고 있습니다. (Drag)")
+else:
+    st.info("최근 1년간 환율 변화가 KOSPI의 달러 기준 수익률에 큰 영향을 주지 않았습니다.")
 
 if usdkrw_df.empty or 'Close' not in usdkrw_df.columns:
     st.error("USD/KRW 환율 데이터가 없습니다. 네트워크 또는 API 오류일 수 있습니다.")
