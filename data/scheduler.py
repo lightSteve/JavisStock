@@ -1,10 +1,11 @@
 """
 백그라운드 데이터 갱신 스케줄러
 
-- 1시간 간격으로 최신 데이터를 자동 갱신
-- 장중(09:00~16:00)에만 API 호출, 장 마감 후에는 스냅샷 재사용
+- 하루 8번 정시(9~16시)마다 최신 데이터를 자동 갱신
+- 정시 정각(분=0)에만 갱신 (중복 방지)
+- 평일(월~금)에만 동작
+- 장중(09:00~16:00)에 API 호출, 장 마감 후에는 스냅샷 저장
 - 스레드 안전한 데이터 저장소 제공
-- API 제한/블록 방지를 위한 보수적 간격 적용
 - 발굴/트레이더 탭 사전 분석 (smart_top3, 기술적 지표, 프로그램매매, 테마)
 """
 
@@ -175,9 +176,10 @@ _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop = threading.Event()
 
 # 설정
-REFRESH_INTERVAL_SEC = 3600  # 1시간 (매시간 한 번씩)
+REFRESH_INTERVAL_SEC = 60  # 1분마다 체크 (정시 갱신 감지용)
 MARKET_OPEN_HOUR = 9
 MARKET_CLOSE_HOUR = 16
+REFRESH_HOURS = [9, 10, 11, 12, 13, 14, 15, 16]  # 정시만 갱신
 
 
 def _is_market_hours() -> bool:
@@ -397,7 +399,7 @@ def _precompute_theme_list():
 
 def _scheduler_loop(date: str, market: str, supply_days: int):
     """백그라운드 스케줄러 루프."""
-    logger.info(f"[Scheduler] 스케줄러 시작 (간격: {REFRESH_INTERVAL_SEC}초)")
+    logger.info(f"[Scheduler] 스케줄러 시작 (정시 갱신: {REFRESH_HOURS}시)")
 
     # 최초 즉시 갱신: 데이터 → 분석
     # 장 마감 후 기동 시 스냅샷이 장중 데이터(16:00 이전)이면 종가 확정 데이터로 재fetch
@@ -419,17 +421,24 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
         _snapshot_saved_today = False
     _do_analysis(date)
 
+    last_refresh_hour = _now_start.hour  # 이미 갱신한 시간 추적
+
     while not _scheduler_stop.is_set():
-        # 다음 갱신까지 대기 (stop 이벤트 체크하며)
+        # 1분마다 체크
         if _scheduler_stop.wait(timeout=REFRESH_INTERVAL_SEC):
             break  # stop 요청 시 종료
 
         now = datetime.datetime.now()
 
-        # 장중에만 API 갱신
-        if _is_market_hours():
+        # 정시(분==0)이고 지정된 갱신 시간(REFRESH_HOURS)이며 같은 시간에 아직 갱신하지 않았으면
+        if (now.hour in REFRESH_HOURS
+            and now.minute == 0
+            and now.hour != last_refresh_hour
+            and now.weekday() < 5):  # 평일만
+            logger.info(f"[Scheduler] 정시 갱신: {now.strftime('%H시')}")
             _do_refresh(date, market, supply_days)
             _do_analysis(date)
+            last_refresh_hour = now.hour
             _snapshot_saved_today = False  # 장중이면 리셋 (다음 마감용)
 
         # ── 장 마감 직후 (16:00~17:00) 자동 스냅샷 저장 ──
@@ -441,8 +450,6 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
             # 종가 확정 데이터로 분석 재실행
             _do_analysis(date)
             _snapshot_saved_today = True
-        else:
-            logger.info("[Scheduler] 장 마감 시간 — API 갱신 스킵")
 
     logger.info("[Scheduler] 스케줄러 종료")
 
