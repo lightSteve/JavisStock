@@ -565,28 +565,50 @@ if st.session_state.get("load_data"):
     )
 
     if not _has_scheduler_data:
-        # 스케줄러에 데이터 없음 → 스냅샷 로드
+        # 스케줄러에 데이터 없음 → 스냅샷 또는 API 로드
+        import time
+        from data.fetcher import smart_load_daily_data, load_daily_snapshot
+
+        start_time = time.time()
+
+        # 먼저 스냅샷이 있는지 확인
+        snapshot = load_daily_snapshot(date_str, market)
+        has_snapshot = (
+            not snapshot.empty
+            and "종목명" in snapshot.columns
+            and "등락률" in snapshot.columns
+            and (snapshot["등락률"] != 0).any()
+        )
+
+        # 메시지 및 진행도 표시
         cols = st.columns([1, 4, 1])
         with cols[1]:
-            st.info("📊 **데이터 분석 준비 중...** (스냅샷 기반)")
-            st.caption("최신 스냅샷 데이터로 빠르게 분석합니다. (1시간마다 갱신)")
+            if has_snapshot:
+                st.info("📊 **스냅샷으로 분석 준비 중...** (빠른 로드)")
+                st.caption("저장된 데이터로 즉시 분석합니다.")
+            else:
+                st.info("📡 **데이터 수집 중...** (약 1-2분)")
+                st.caption("스냅샷이 없어서 최신 데이터를 가져옵니다. (1시간마다 갱신)")
 
-        # 진행도 바와 상태 표시 (함수 외부에서 생성)
+        # 진행도 바와 상태 표시
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        import time
-        start_time = time.time()
-
         try:
-            from data.fetcher import smart_load_daily_data
-
-            # 단계별 애니메이션 (스냅샷 기반이므로 빠름)
-            steps = [
-                (20, "① 스냅샷 확인 중..."),
-                (50, "② 데이터 통합 중..."),
-                (80, "③ 분석 준비 중..."),
-            ]
+            if has_snapshot:
+                # 스냅샷 있음: 빠른 진행도
+                steps = [
+                    (30, "① 스냅샷 로드 중..."),
+                    (70, "② 분석 준비 중..."),
+                ]
+            else:
+                # 스냅샷 없음: API 호출 진행도
+                steps = [
+                    (10, "① 데이터 소스 확인 중..."),
+                    (35, "② 시세 데이터 로드 중..."),
+                    (65, "③ 기관/외국인 수급 데이터 로드 중..."),
+                    (85, "④ 업종 정보 로드 중..."),
+                ]
 
             for progress, msg in steps:
                 elapsed = int(time.time() - start_time)
