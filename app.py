@@ -557,12 +557,22 @@ if (st.session_state.get("load_data")
 
 if st.session_state.get("load_data"):
 
+    # 스케줄러 상태 미리 확인
+    _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
+    _has_scheduler_data = (
+        _cached_df is not None and not _cached_df.empty
+        and _cached_date == date_str and _cached_market == market
+    )
 
-    with st.spinner("데이터를 불러오는 중입니다... (최대 1~2분 소요될 수 있습니다)"):
-        # 스케줄러에 이미 데이터가 있으면 즉시 사용
-        _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
-        if (_cached_df is not None and not _cached_df.empty
-                and _cached_date == date_str and _cached_market == market):
+    if not _has_scheduler_data:
+        # 스케줄러에 데이터 없음 → API 직접 로드
+        cols = st.columns([1, 4, 1])
+        with cols[1]:
+            st.info("📡 **실시간 데이터 수집 중...** (약 1분 30초 소요)")
+            st.caption("6000개 종목 시세 + 기관/외국인 수급 데이터 로딩 중...")
+
+    with st.spinner("데이터 수집 중... 잠시만 기다려주세요"):
+        if _has_scheduler_data:
             daily_df = _cached_df
             if st.session_state.get("_last_sched_refresh") is None and _cached_time:
                 st.session_state["_last_sched_refresh"] = _cached_time
@@ -574,6 +584,10 @@ if st.session_state.get("load_data"):
             st.stop()
 
         st.session_state["daily_df"] = daily_df
+
+    # 로딩 완료 메시지
+    if not _has_scheduler_data:
+        st.success("✅ 데이터 수집 완료! 분석을 시작합니다...")
 
     # ─── 기준일 표시 ───
     import datetime as _dt
