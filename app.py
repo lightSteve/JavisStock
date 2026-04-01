@@ -555,6 +555,49 @@ if (st.session_state.get("load_data")
     st.rerun()
 
 
+def load_daily_data_with_progress(date: str, mkt: str, days: int) -> pd.DataFrame:
+    """단계별 진행도를 표시하면서 데이터 로드."""
+    from data.fetcher import (
+        get_market_ohlcv, get_all_tickers, get_accumulated_investor_trading,
+        get_sector_info, get_latest_trading_date, smart_load_daily_data
+    )
+
+    # 진행도 표시
+    progress_placeholder = st.empty()
+
+    try:
+        # 스냅샷 또는 API 데이터 로드 (장 마감시간 판별 포함)
+        progress_placeholder.progress(10, text="① 데이터 소스 확인 중... (10%)")
+        import time
+        time.sleep(0.2)
+
+        # 시세 데이터 로드
+        progress_placeholder.progress(30, text="② 시세 데이터 로드 중... (30%)")
+        time.sleep(0.1)
+
+        # 수급 데이터 로드
+        progress_placeholder.progress(60, text="③ 기관/외국인 수급 데이터 로드 중... (60%)")
+        time.sleep(0.1)
+
+        # 업종 정보 로드
+        progress_placeholder.progress(85, text="④ 업종 정보 로드 중... (85%)")
+        time.sleep(0.1)
+
+        # 실제 데이터 로드 (위 단계들은 시각적 피드백용)
+        daily_df = smart_load_daily_data(date, mkt, days)
+
+        # 완료
+        progress_placeholder.progress(100, text="✅ 데이터 로드 완료! (100%)")
+        time.sleep(0.3)
+        progress_placeholder.empty()
+
+        return daily_df
+    except Exception as e:
+        st.error(f"❌ 데이터 로드 중 오류: {e}")
+        progress_placeholder.empty()
+        raise
+
+
 if st.session_state.get("load_data"):
 
     # 스케줄러 상태 미리 확인
@@ -565,25 +608,25 @@ if st.session_state.get("load_data"):
     )
 
     if not _has_scheduler_data:
-        # 스케줄러에 데이터 없음 → API 직접 로드
+        # 스케줄러에 데이터 없음 → API 직접 로드 (진행도 표시)
         cols = st.columns([1, 4, 1])
         with cols[1]:
             st.info("📡 **실시간 데이터 수집 중...** (약 1분 30초 소요)")
             st.caption("약 2,700개 종목 시세 + 기관/외국인 수급 데이터 로딩 중...")
 
-    with st.spinner("데이터 수집 중... 잠시만 기다려주세요"):
-        if _has_scheduler_data:
+        daily_df = load_daily_data_with_progress(date_str, market, supply_days)
+    else:
+        # 스케줄러 캐시 사용
+        with st.spinner("캐시 데이터 로드 중..."):
             daily_df = _cached_df
             if st.session_state.get("_last_sched_refresh") is None and _cached_time:
                 st.session_state["_last_sched_refresh"] = _cached_time
-        else:
-            daily_df = load_daily_data_dynamic(date_str, market, supply_days)
 
-        if daily_df.empty:
-            st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
-            st.stop()
+    if daily_df.empty:
+        st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
+        st.stop()
 
-        st.session_state["daily_df"] = daily_df
+    st.session_state["daily_df"] = daily_df
 
     # 로딩 완료 메시지
     if not _has_scheduler_data:
