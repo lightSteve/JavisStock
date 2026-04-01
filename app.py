@@ -571,14 +571,17 @@ if st.session_state.get("load_data"):
 
         start_time = time.time()
 
-        # 먼저 스냅샷이 있는지 확인
-        snapshot = load_daily_snapshot(date_str, market)
-        has_snapshot = (
-            not snapshot.empty
-            and "종목명" in snapshot.columns
-            and "등락률" in snapshot.columns
-            and (snapshot["등락률"] != 0).any()
-        )
+        # 먼저 스냅샷이 있는지 확인 (에러 방지)
+        try:
+            snapshot = load_daily_snapshot(date_str, market)
+            has_snapshot = (
+                not snapshot.empty
+                and "종목명" in snapshot.columns
+                and "등락률" in snapshot.columns
+                and (snapshot["등락률"] != 0).any()
+            )
+        except Exception as e:
+            has_snapshot = False
 
         # 메시지 및 진행도 표시
         cols = st.columns([1, 4, 1])
@@ -588,7 +591,7 @@ if st.session_state.get("load_data"):
                 st.caption("저장된 데이터로 즉시 분석합니다.")
             else:
                 st.info("📡 **데이터 수집 중...** (약 1-2분)")
-                st.caption("스냅샷이 없어서 최신 데이터를 가져옵니다. (1시간마다 갱신)")
+                st.caption("최신 데이터를 가져오고 있습니다. 잠시만 기다려주세요.")
 
         # 진행도 바와 상태 표시
         progress_bar = st.progress(0)
@@ -630,7 +633,10 @@ if st.session_state.get("load_data"):
             status_text.empty()
 
         except Exception as e:
-            st.error(f"❌ 데이터 로드 실패: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"데이터 로드 실패: {e}")
+            st.error(f"❌ 데이터 로드 실패: {str(e)}")
             progress_bar.empty()
             status_text.empty()
             st.stop()
