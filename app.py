@@ -532,11 +532,18 @@ def run_screening(daily_data_json: str, date: str):
 # 캐시 함수 정의 완료 — 이제 로드 버튼 처리 가능
 # 로그인된 사용자는 자동으로 데이터 로드 시작
 from components.auth import is_logged_in
-if is_logged_in():
+import os
+
+# 개발 모드: 환경변수 JAVIS_DEV_MODE=1 설정하면 로그인 스킵
+DEV_MODE = os.getenv("JAVIS_DEV_MODE", "0") == "1"
+
+if DEV_MODE or is_logged_in():
     # 최초 로드 또는 상태 초기화
     if "load_data" not in st.session_state:
         st.session_state["load_data"] = True
         st.session_state["force_refresh"] = False
+        if DEV_MODE:
+            st.warning("⚙️ 개발 모드 활성화 - 로그인 스킵됨")
 
 # ── 스케줄러 자동 갱신 감지: _store에 새 데이터가 있으면 daily_df 자동 교체 ──
 # 장마감 후 종가 확정 데이터가 들어오면 버튼 재클릭 없이 화면 자동 최신화
@@ -1109,8 +1116,7 @@ if st.session_state.get("load_data"):
 
 else:
     # 로그인되지 않음 - 안내 화면
-    from components.auth import is_logged_in
-    if not is_logged_in():
+    if not DEV_MODE and not is_logged_in():
         st.markdown("---")
         st.markdown(
             """
