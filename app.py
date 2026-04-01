@@ -499,9 +499,9 @@ else:
 
 
 # 장중/마감 모드별 고정 캐시 함수
-@st.cache_data(ttl=60, show_spinner="📡 실시간 데이터 로딩 중...")
+@st.cache_data(ttl=60, show_spinner="📡 스냅샷 데이터 로딩 중...")
 def load_daily_data_open(date: str, mkt: str, days: int) -> pd.DataFrame:
-    return smart_load_daily_data(date, mkt, days, force_refresh=True)
+    return smart_load_daily_data(date, mkt, days, force_refresh=False)
 
 
 @st.cache_data(ttl=3600, show_spinner="📡 마감 데이터 로딩 중... (스냅샷)")
@@ -565,11 +565,11 @@ if st.session_state.get("load_data"):
     )
 
     if not _has_scheduler_data:
-        # 스케줄러에 데이터 없음 → API 직접 로드
+        # 스케줄러에 데이터 없음 → 스냅샷 로드
         cols = st.columns([1, 4, 1])
         with cols[1]:
-            st.info("📡 **실시간 데이터 수집 중...** (약 2-3분 소요)")
-            st.caption("약 2,700개 종목 시세 + 기관/외국인 수급 데이터 로딩 중...")
+            st.info("📊 **데이터 분석 준비 중...** (스냅샷 기반)")
+            st.caption("최신 스냅샷 데이터로 빠르게 분석합니다. (1시간마다 갱신)")
 
         # 진행도 바와 상태 표시 (함수 외부에서 생성)
         progress_bar = st.progress(0)
@@ -581,32 +581,27 @@ if st.session_state.get("load_data"):
         try:
             from data.fetcher import smart_load_daily_data
 
-            # 단계별 애니메이션
+            # 단계별 애니메이션 (스냅샷 기반이므로 빠름)
             steps = [
-                (10, "① 데이터 소스 확인 중..."),
-                (30, "② 시세 데이터 로드 중..."),
-                (60, "③ 기관/외국인 수급 데이터 로드 중..."),
-                (85, "④ 업종 정보 로드 중..."),
+                (20, "① 스냅샷 확인 중..."),
+                (50, "② 데이터 통합 중..."),
+                (80, "③ 분석 준비 중..."),
             ]
 
             for progress, msg in steps:
                 elapsed = int(time.time() - start_time)
                 progress_bar.progress(progress / 100)
                 status_text.markdown(f"**{msg}** ({elapsed}초)")
-                time.sleep(0.05)
+                time.sleep(0.02)
 
             # 실제 데이터 로드
             daily_df = smart_load_daily_data(date_str, market, supply_days)
 
             # 완료
             elapsed = int(time.time() - start_time)
-            minutes = elapsed // 60
-            seconds = elapsed % 60
-            time_str = f"{minutes}분 {seconds}초" if minutes > 0 else f"{seconds}초"
-
             progress_bar.progress(100 / 100)
-            status_text.markdown(f"✅ **로드 완료!** ({time_str})")
-            time.sleep(0.3)
+            status_text.markdown(f"✅ **완료!** ({elapsed}초)")
+            time.sleep(0.2)
 
             # 진행도 제거
             progress_bar.empty()
@@ -632,7 +627,7 @@ if st.session_state.get("load_data"):
 
     # 로딩 완료 메시지
     if not _has_scheduler_data:
-        st.success("✅ 데이터 수집 완료! 분석을 시작합니다...")
+        st.success("✅ 준비 완료! 분석을 시작합니다...")
 
     # ─── 기준일 표시 ───
     import datetime as _dt

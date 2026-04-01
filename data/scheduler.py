@@ -1,7 +1,7 @@
 """
 백그라운드 데이터 갱신 스케줄러
 
-- 10분 간격으로 최신 데이터를 자동 갱신
+- 1시간 간격으로 최신 데이터를 자동 갱신
 - 장중(09:00~16:00)에만 API 호출, 장 마감 후에는 스냅샷 재사용
 - 스레드 안전한 데이터 저장소 제공
 - API 제한/블록 방지를 위한 보수적 간격 적용
@@ -175,7 +175,7 @@ _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop = threading.Event()
 
 # 설정
-REFRESH_INTERVAL_SEC = 600   # 10분
+REFRESH_INTERVAL_SEC = 3600  # 1시간 (매시간 한 번씩)
 MARKET_OPEN_HOUR = 9
 MARKET_CLOSE_HOUR = 16
 
