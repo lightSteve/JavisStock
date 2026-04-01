@@ -33,43 +33,44 @@ def get_username() -> str:
 
 
 def render_login_sidebar():
-    """사이드바에 로그인/회원가입 UI 렌더링.
+    """사이드바에 로그인/회원가입 UI 렌더링 (Material Design).
 
     로그인 성공 시 st.session_state["username"]에 닉네임 저장.
     """
-    st.sidebar.markdown("### 🔐 로그인")
+    st.sidebar.markdown("### 로그인")
 
     # 이미 로그인 상태면 환영 메시지 + 로그아웃
     if is_logged_in():
         username = get_username()
         st.sidebar.markdown(
-            f'<div style="background:linear-gradient(135deg,#059669,#10b981); '
-            f'border-radius:10px; padding:10px 14px; margin-bottom:8px;">'
-            f'<div style="color:#fff; font-weight:700; font-size:0.9em;">'
-            f'👤 {username} 님</div>'
-            f'<div style="color:#d1fae5; font-size:0.75em;">로그인 중</div>'
+            f'<div style="background:#e8f5e9; border-radius:8px; padding:12px 14px; '
+            f'margin-bottom:12px; border-left:4px solid #4f46e5;">'
+            f'<div style="color:#1e293b; font-weight:600; font-size:0.95em;">'
+            f'{username}</div>'
+            f'<div style="color:#64748b; font-size:0.82em; margin-top:2px;">로그인됨</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
-        if st.sidebar.button("🚪 로그아웃", key="btn_logout", use_container_width=True):
+        if st.sidebar.button("로그아웃", key="btn_logout", use_container_width=True):
             st.session_state.pop("username", None)
             st.rerun()
         return
 
     # 로그인 / 회원가입 모드 선택
     mode = st.sidebar.selectbox(
-        "🔐 계정", ["로그인", "회원가입"], key="auth_mode",
+        "계정", ["로그인", "회원가입"], key="auth_mode",
+        label_visibility="collapsed",
     )
 
     if mode == "로그인":
         with st.sidebar.form("login_form"):
             login_name = st.text_input(
-                "닉네임", placeholder="닉네임", key="login_name",
+                "닉네임", placeholder="닉네임 입력", key="login_name",
             )
             login_pw = st.text_input(
-                "비밀번호", type="password", placeholder="비밀번호", key="login_pw",
+                "비밀번호", type="password", placeholder="비밀번호 입력", key="login_pw",
             )
-            submitted = st.form_submit_button("✅ 로그인", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("로그인", use_container_width=True, type="primary")
         if submitted:
             if not login_name or not login_pw:
                 st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
@@ -94,7 +95,7 @@ def render_login_sidebar():
             reg_pw2 = st.text_input(
                 "비밀번호 확인", type="password", placeholder="비밀번호 재입력", key="reg_pw2",
             )
-            submitted = st.form_submit_button("📝 회원가입", use_container_width=True)
+            submitted = st.form_submit_button("회원가입", use_container_width=True)
         if submitted:
             if not reg_name or not reg_pw:
                 st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")

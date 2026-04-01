@@ -242,16 +242,31 @@ st.markdown(
     /* ── 앱 배경 ── */
     .stApp { background-color: #f8f9fc; color: #1a1a2e; }
 
-    /* ── 사이드바 ── */
+    /* ── 사이드바 (Material Design) ── */
     section[data-testid="stSidebar"] {
-        background-color: #1e293b;
-        color: #e2e8f0;
+        background-color: #f5f7fa;
+        color: #1e293b;
     }
     section[data-testid="stSidebar"] .stMarkdown,
     section[data-testid="stSidebar"] label,
     section[data-testid="stSidebar"] .stSlider label,
     section[data-testid="stSidebar"] span {
-        color: #e2e8f0 !important;
+        color: #1e293b !important;
+    }
+    section[data-testid="stSidebar"] h3 {
+        color: #1e293b !important;
+        font-weight: 700 !important;
+        font-size: 1.1em !important;
+        margin-bottom: 16px !important;
+    }
+    section[data-testid="stSidebar"] .stTextInput input,
+    section[data-testid="stSidebar"] .stSelectbox select {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+    section[data-testid="stSidebar"] button {
+        color: #1e293b !important;
     }
 
     /* ── 헤더 ── */
