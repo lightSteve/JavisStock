@@ -105,7 +105,7 @@ fig.update_layout(
     hovermode='x unified',
     plot_bgcolor='#fff',
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # 6. Gap 분석 리포트
 st.markdown("### 환율 효과 분석 리포트")
@@ -154,7 +154,7 @@ else:
     )
     fig.update_traces(line_color="#2563eb", line_width=2)
     fig.update_layout(margin=dict(t=40, l=10, r=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 from data.fetcher import get_market_mode, is_market_open, is_market_closed
 """
 📊 TrendCatcher – 주식 모멘텀 & 수급 분석 대시보드
@@ -534,21 +534,29 @@ if (st.session_state.get("load_data")
 
 
 if st.session_state.get("load_data"):
-    # 스케줄러에 이미 데이터가 있으면 즉시 사용
-    _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
-    if (_cached_df is not None and not _cached_df.empty
-            and _cached_date == date_str and _cached_market == market):
-        daily_df = _cached_df
-        if st.session_state.get("_last_sched_refresh") is None and _cached_time:
-            st.session_state["_last_sched_refresh"] = _cached_time
-    else:
-        daily_df = load_daily_data_dynamic(date_str, market, supply_days)
 
-    if daily_df.empty:
-        st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
-        st.stop()
 
-    st.session_state["daily_df"] = daily_df
+    with st.spinner("데이터를 불러오는 중입니다... (최대 1~2분 소요될 수 있습니다)"):
+        # 스케줄러에 이미 데이터가 있으면 즉시 사용
+        _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
+        st.write("[진단] get_cached_data 결과:", type(_cached_df), _cached_df.shape if _cached_df is not None else None, _cached_date, _cached_market, _cached_time)
+        if (_cached_df is not None and not _cached_df.empty
+                and _cached_date == date_str and _cached_market == market):
+            st.write("[진단] 캐시 HIT: 스케줄러 데이터 사용")
+            daily_df = _cached_df
+            if st.session_state.get("_last_sched_refresh") is None and _cached_time:
+                st.session_state["_last_sched_refresh"] = _cached_time
+        else:
+            st.write("[진단] 캐시 MISS: 동적 로딩 시도")
+            daily_df = load_daily_data_dynamic(date_str, market, supply_days)
+            st.write("[진단] load_daily_data_dynamic 결과:", type(daily_df), daily_df.shape if daily_df is not None else None)
+
+        if daily_df.empty:
+            st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
+            st.write("[진단] daily_df가 empty입니다!", daily_df)
+            st.stop()
+
+        st.session_state["daily_df"] = daily_df
 
     # ─── 기준일 표시 ───
     import datetime as _dt
@@ -583,7 +591,7 @@ if st.session_state.get("load_data"):
         st.markdown("<br>", unsafe_allow_html=True)
         if search_picked:
             _search_ticker = search_picked.split("(")[-1].rstrip(")")
-            if st.button("📈 상세 보기", key="search_go", type="primary", use_container_width=True):
+            if st.button("📈 상세 보기", key="search_go", type="primary", width="stretch"):
                 st.session_state["selected_ticker"] = _search_ticker
                 st.session_state["show_search_detail"] = _search_ticker
 
@@ -688,7 +696,7 @@ if st.session_state.get("load_data"):
                     "거래량": _up_display["거래량"].apply(lambda x: f"{int(x):,}"),
                 })
                 _up_show.index = _up_display.index
-                st.dataframe(_up_show, use_container_width=True, height=400)
+                st.dataframe(_up_show, width="stretch", height=400)
             else:
                 st.info("상승 종목이 없습니다.")
     with list_col2:
@@ -702,7 +710,7 @@ if st.session_state.get("load_data"):
                     "거래량": _dn_display["거래량"].apply(lambda x: f"{int(x):,}"),
                 })
                 _dn_show.index = _dn_display.index
-                st.dataframe(_dn_show, use_container_width=True, height=400)
+                st.dataframe(_dn_show, width="stretch", height=400)
             else:
                 st.info("하락 종목이 없습니다.")
 
@@ -901,7 +909,7 @@ if st.session_state.get("load_data"):
         with pnl_col:
             st.markdown("**PnL 입력**")
             new_pnl = st.number_input("오늘 손익(%)", value=0.0, step=0.5, key="daily_pnl_input")
-            if st.button("기록", key="pnl_record", use_container_width=True):
+            if st.button("기록", key="pnl_record", width="stretch"):
                 if "pnl_history" not in st.session_state:
                     st.session_state["pnl_history"] = []
                 st.session_state["pnl_history"].insert(0, new_pnl)

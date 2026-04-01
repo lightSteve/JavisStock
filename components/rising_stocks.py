@@ -46,7 +46,12 @@ def render_rising_stocks(daily_df: pd.DataFrame) -> Optional[str]:
     with col1:
         if st.button("🔄 데이터로드 & 분석시작", key="rising_stocks_reload"):
             st.session_state[last_update_key] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.experimental_rerun()
+            import os
+            if not os.environ.get("STREAMLIT_SERVER_HEADLESS"):
+                try:
+                    st.rerun()
+                except Exception:
+                    pass
     with col2:
         last_time = st.session_state[last_update_key]
         if last_time:
