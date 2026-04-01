@@ -8,8 +8,11 @@
 
 import hashlib
 import re
+import os
 import streamlit as st
 from data.supabase_db import get_user, upsert_user
+
+DEV_MODE = os.getenv("JAVIS_DEV_MODE", "0") == "1"
 
 
 def _hash_password(password: str) -> str:
@@ -72,18 +75,28 @@ def render_login_sidebar():
             )
             submitted = st.form_submit_button("로그인", use_container_width=True, type="primary")
         if submitted:
-            if not login_name or not login_pw:
-                st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
-            else:
-                safe_name = _sanitize_username(login_name)
-                user = get_user(safe_name)
-                if not user:
-                    st.sidebar.error("등록되지 않은 닉네임입니다.")
-                elif user["password_hash"] != _hash_password(login_pw):
-                    st.sidebar.error("비밀번호가 틀렸습니다.")
-                else:
+            if DEV_MODE:
+                # Dev mode: skip validation, accept any input
+                if login_name:
+                    safe_name = _sanitize_username(login_name)
                     st.session_state["username"] = safe_name
                     st.rerun()
+                else:
+                    st.sidebar.error("닉네임을 입력해주세요.")
+            else:
+                # Production: normal validation
+                if not login_name or not login_pw:
+                    st.sidebar.error("닉네임과 비밀번호를 입력해주세요.")
+                else:
+                    safe_name = _sanitize_username(login_name)
+                    user = get_user(safe_name)
+                    if not user:
+                        st.sidebar.error("등록되지 않은 닉네임입니다.")
+                    elif user["password_hash"] != _hash_password(login_pw):
+                        st.sidebar.error("비밀번호가 틀렸습니다.")
+                    else:
+                        st.session_state["username"] = safe_name
+                        st.rerun()
     else:
         with st.sidebar.form("register_form"):
             reg_name = st.text_input(

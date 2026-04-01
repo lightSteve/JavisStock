@@ -534,16 +534,14 @@ def run_screening(daily_data_json: str, date: str):
 from components.auth import is_logged_in
 import os
 
-# 개발 모드: 환경변수 JAVIS_DEV_MODE=1 설정하면 로그인 스킵
+# 개발 모드: 환경변수 JAVIS_DEV_MODE=1 설정하면 로그인 폼에서 검증 스킵
 DEV_MODE = os.getenv("JAVIS_DEV_MODE", "0") == "1"
 
-if DEV_MODE or is_logged_in():
+if is_logged_in():
     # 최초 로드 또는 상태 초기화
     if "load_data" not in st.session_state:
         st.session_state["load_data"] = True
         st.session_state["force_refresh"] = False
-        if DEV_MODE:
-            st.warning("⚙️ 개발 모드 활성화 - 로그인 스킵됨")
 
 # ── 스케줄러 자동 갱신 감지: _store에 새 데이터가 있으면 daily_df 자동 교체 ──
 # 장마감 후 종가 확정 데이터가 들어오면 버튼 재클릭 없이 화면 자동 최신화
