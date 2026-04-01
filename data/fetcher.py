@@ -296,10 +296,15 @@ def get_all_tickers(date: str, market: str = "ALL") -> pd.DataFrame:
 # 공개 API : 시세 데이터
 # ---------------------------------------------------------------------------
 
-def get_market_ohlcv(date: str, market: str = "ALL") -> pd.DataFrame:
+def get_market_ohlcv(date: str, market: str = "ALL", exclude_etf: bool = True) -> pd.DataFrame:
     """
     전종목 시세 조회 (Naver API 최신 데이터).
     컬럼: 시가, 고가, 저가, 종가, 거래량, 거래대금(원), 등락률, 시장, 시가총액
+
+    Args:
+        date: 거래 기준일 (YYYYMMDD)
+        market: "ALL", "KOSPI", "KOSDAQ"
+        exclude_etf: True면 ETF/ETN 제외하고 일반 주식만 반환
 
     Note: Naver 대량 API는 장중 시가/고가/저가를 별도 제공하지 않으므로
           종가/전일종가 기반 근사값을 사용합니다.
@@ -312,6 +317,12 @@ def get_market_ohlcv(date: str, market: str = "ALL") -> pd.DataFrame:
             close = _to_int(s.get("closePrice", 0))
             if close == 0:
                 continue  # 거래 정지 종목 제외
+
+            # ETF/ETN 제외 필터
+            stock_type = s.get("stockEndType", "stock")
+            if exclude_etf and stock_type != "stock":
+                continue
+
             change = _to_signed_int(s.get("compareToPreviousClosePrice", 0))
             prev_close = close - change
             # 등락률: API가 0을 반환하면(장 외 시간) 전일대비 가격으로 직접 계산
@@ -331,7 +342,7 @@ def get_market_ohlcv(date: str, market: str = "ALL") -> pd.DataFrame:
                 "등락률": frate,
                 "시장": mkt,
                 "시가총액": _to_int(s.get("marketValue", 0)) * 100_000_000,
-                "종목유형": s.get("stockEndType", "stock"),
+                "종목유형": stock_type,
             })
     if not rows:
         return pd.DataFrame()
@@ -1471,12 +1482,18 @@ def clear_kiwoom_investor_cache(ticker: str = None):
 # 종합 데이터 빌더 (메인 파이프라인)
 # ---------------------------------------------------------------------------
 
-def build_daily_dataset(date=None, market: str = "ALL") -> pd.DataFrame:
-    """전종목 시세 + 수급 + 업종 정보 결합."""
+def build_daily_dataset(date=None, market: str = "ALL", exclude_etf: bool = True) -> pd.DataFrame:
+    """전종목 시세 + 수급 + 업종 정보 결합.
+
+    Args:
+        date: 거래 기준일 (None이면 최신 거래일)
+        market: "ALL", "KOSPI", "KOSDAQ"
+        exclude_etf: True면 ETF/ETN 제외 (기본값: 빠른 로딩)
+    """
     if date is None:
         date = get_latest_trading_date()
 
-    ohlcv = get_market_ohlcv(date, market)
+    ohlcv = get_market_ohlcv(date, market, exclude_etf=exclude_etf)
     if ohlcv.empty:
         return pd.DataFrame()
 
