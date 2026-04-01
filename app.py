@@ -583,68 +583,87 @@ if st.session_state.get("load_data"):
         except Exception as e:
             has_snapshot = False
 
+        # 스케줄러에 데이터 없음 → 스냅샷 또는 API 로드
+        import time
+        from data.fetcher import smart_load_daily_data, load_daily_snapshot
+
+        start_time = time.time()
+
+        # 먼저 스냅샷이 있는지 확인 (에러 방지)
+        try:
+            snapshot = load_daily_snapshot(date_str, market)
+            has_snapshot = (
+                not snapshot.empty
+                and "종목명" in snapshot.columns
+                and "등락률" in snapshot.columns
+                and (snapshot["등락률"] != 0).any()
+            )
+        except Exception as e:
+            has_snapshot = False
+
         # 화면 중앙에 큰 로딩 표시 (border와 함께)
-        loading_container = st.container(border=True)
-        with loading_container:
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("## 📡 데이터 로드 중...")
+            st.caption("최신 데이터를 가져오고 있습니다. 잠시만 기다려주세요.")
+
+            # 진행도 바와 상태 표시 (중앙에 크게)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            timer_text = st.empty()
+
+            try:
                 if has_snapshot:
-                    st.markdown("## 📊 분석 준비 중...")
-                    st.caption("스냅샷 데이터로 빠르게 로드합니다")
+                    # 스냅샷 있음: 빠른 진행도
+                    steps = [
+                        (30, "① 스냅샷 로드 중 ⬇️"),
+                        (70, "② 분석 준비 중 ⚙️"),
+                    ]
                 else:
-                    st.markdown("## 📡 데이터 수집 중...")
-                    st.caption("최신 데이터를 가져오고 있습니다 (약 1-2분)")
+                    # 스냅샷 없음: API 호출 진행도
+                    steps = [
+                        (10, "① 데이터 소스 확인 중 🔍"),
+                        (35, "② 시세 데이터 로드 중 💹"),
+                        (65, "③ 기관/외국인 수급 데이터 로드 중 📊"),
+                        (85, "④ 업종 정보 로드 중 🏢"),
+                    ]
 
-                # 진행도 바와 상태 표시 (중앙에 크게)
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                try:
-                    if has_snapshot:
-                        # 스냅샷 있음: 빠른 진행도
-                        steps = [
-                            (30, "① 스냅샷 로드 중 ⬇️"),
-                            (70, "② 분석 준비 중 ⚙️"),
-                        ]
-                    else:
-                        # 스냅샷 없음: API 호출 진행도
-                        steps = [
-                            (10, "① 데이터 소스 확인 중 🔍"),
-                            (35, "② 시세 데이터 로드 중 💹"),
-                            (65, "③ 기관/외국인 수급 데이터 로드 중 📊"),
-                            (85, "④ 업종 정보 로드 중 🏢"),
-                        ]
-
-                    for progress, msg in steps:
-                        elapsed = int(time.time() - start_time)
-                        progress_bar.progress(progress / 100)
-                        status_text.markdown(f"**{msg}** ({elapsed}초 경과)")
-                        time.sleep(0.02)
-
-                    # 실제 데이터 로드
-                    daily_df = smart_load_daily_data(date_str, market, supply_days)
-
-                    if daily_df.empty:
-                        status_text.markdown("❌ **데이터를 가져올 수 없습니다.**")
-                        st.stop()
-
-                    # 완료
+                for progress, msg in steps:
                     elapsed = int(time.time() - start_time)
-                    progress_bar.progress(100 / 100)
-                    status_text.markdown(f"✅ **완료!** ({elapsed}초)")
-                    time.sleep(0.3)
+                    progress_bar.progress(progress / 100)
+                    status_text.markdown(f"**{msg}**")
+                    timer_text.caption(f"⏱️ 경과 시간: {elapsed}초")
+                    time.sleep(0.1)
 
-                    # 로딩 컨테이너만 깨끗하게 정리 (경고 조심)
-                    progress_bar.empty()
-                    status_text.empty()
+                # 실제 데이터 로드
+                status_text.markdown(f"**🔄 실제 데이터 처리 중...**")
+                daily_df = smart_load_daily_data(date_str, market, supply_days)
 
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"데이터 로드 실패: {e}", exc_info=True)
-                    # 에러를 로딩 박스 안에 표시
-                    status_text.markdown(f"❌ **오류 발생: {str(e)[:100]}**")
+                if daily_df.empty:
+                    st.error("❌ 데이터를 가져올 수 없습니다. 시간을 두고 다시 시도해주세요.")
                     st.stop()
+
+                # 완료
+                elapsed = int(time.time() - start_time)
+                progress_bar.progress(100 / 100)
+                status_text.markdown(f"✅ **완료!**")
+                timer_text.caption(f"⏱️ 총 소요 시간: {elapsed}초")
+                time.sleep(0.5)
+
+                # 진행도 정리
+                progress_bar.empty()
+                status_text.empty()
+                timer_text.empty()
+
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"데이터 로드 실패: {e}", exc_info=True)
+
+                elapsed = int(time.time() - start_time)
+                st.error(f"❌ 오류 발생 ({elapsed}초 경과)")
+                st.error(f"상세: {str(e)[:200]}")
+                st.stop()
     else:
         # 스케줄러 캐시 사용
         with st.spinner("캐시 데이터 로드 중..."):
