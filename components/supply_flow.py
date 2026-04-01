@@ -21,31 +21,6 @@ def render_supply_flow(daily_df: pd.DataFrame) -> Optional[str]:
     import datetime as _dt
     st.markdown("## 🏛️ 기관 · 외국인 수급 분석")
 
-    # 마지막 갱신 시간 표시
-    last_update_key = "supply_flow_last_update"
-    if last_update_key not in st.session_state:
-        st.session_state[last_update_key] = None
-
-    import os
-    from data.fetcher import clear_integration_cache
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("🔄 데이터로드 & 분석시작", key="supply_flow_reload"):
-            st.session_state[last_update_key] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.session_state["force_refresh"] = True  # 데이터 강제 갱신 트리거
-            clear_integration_cache()  # integration 캐시도 함께 삭제
-            # Cloud 환경에서는 rerun 생략
-            if not os.environ.get("STREAMLIT_SERVER_HEADLESS"):
-                try:
-                    st.rerun()
-                except Exception:
-                    pass
-    with col2:
-        last_time = st.session_state[last_update_key]
-        if last_time:
-            st.info(f"마지막 갱신: {last_time}")
-        else:
-            st.info("아직 데이터가 갱신되지 않았습니다.")
 
     if daily_df.empty:
         st.info("데이터가 없습니다.")
