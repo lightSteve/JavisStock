@@ -1,7 +1,7 @@
 import streamlit as st
 
 # 빌드 버전 (Streamlit Cloud 캐시 클리어용)
-# Build: 20260401-v2.1
+# Build: 20260401-v3.0
 # 환율 반영 실정 지수 기능에 필요한 패키지
 import plotly.graph_objects as go
 
