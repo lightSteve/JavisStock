@@ -539,7 +539,7 @@ if st.session_state.get("load_data"):
     with st.spinner("데이터를 불러오는 중입니다... (최대 1~2분 소요될 수 있습니다)"):
         # 스케줄러에 이미 데이터가 있으면 즉시 사용
         _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
-        st.write("[진단] get_cached_data 결과:", type(_cached_df), _cached_df.shape if _cached_df is not None else None, _cached_date, _cached_market, _cached_time)
+        st.write("[진단] get_cached_data 결과:", _cached_df.shape if _cached_df is not None else None, _cached_date, _cached_market, _cached_time)
         if (_cached_df is not None and not _cached_df.empty
                 and _cached_date == date_str and _cached_market == market):
             st.write("[진단] 캐시 HIT: 스케줄러 데이터 사용")
