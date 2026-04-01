@@ -583,63 +583,63 @@ if st.session_state.get("load_data"):
         except Exception as e:
             has_snapshot = False
 
-        # 메시지 및 진행도 표시
-        cols = st.columns([1, 4, 1])
-        with cols[1]:
-            if has_snapshot:
-                st.info("📊 **스냅샷으로 분석 준비 중...** (빠른 로드)")
-                st.caption("저장된 데이터로 즉시 분석합니다.")
-            else:
-                st.info("📡 **데이터 수집 중...** (약 1-2분)")
-                st.caption("최신 데이터를 가져오고 있습니다. 잠시만 기다려주세요.")
+        # 화면 중앙에 큰 로딩 표시 (border와 함께)
+        loading_container = st.container(border=True)
+        with loading_container:
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if has_snapshot:
+                    st.markdown("## 📊 분석 준비 중...")
+                    st.caption("스냅샷 데이터로 빠르게 로드합니다")
+                else:
+                    st.markdown("## 📡 데이터 수집 중...")
+                    st.caption("최신 데이터를 가져오고 있습니다 (약 1-2분)")
 
-        # 진행도 바와 상태 표시
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+                # 진행도 바와 상태 표시 (중앙에 크게)
+                progress_bar = st.progress(0)
+                status_text = st.empty()
 
-        try:
-            if has_snapshot:
-                # 스냅샷 있음: 빠른 진행도
-                steps = [
-                    (30, "① 스냅샷 로드 중..."),
-                    (70, "② 분석 준비 중..."),
-                ]
-            else:
-                # 스냅샷 없음: API 호출 진행도
-                steps = [
-                    (10, "① 데이터 소스 확인 중..."),
-                    (35, "② 시세 데이터 로드 중..."),
-                    (65, "③ 기관/외국인 수급 데이터 로드 중..."),
-                    (85, "④ 업종 정보 로드 중..."),
-                ]
+                try:
+                    if has_snapshot:
+                        # 스냅샷 있음: 빠른 진행도
+                        steps = [
+                            (30, "① 스냅샷 로드 중 ⬇️"),
+                            (70, "② 분석 준비 중 ⚙️"),
+                        ]
+                    else:
+                        # 스냅샷 없음: API 호출 진행도
+                        steps = [
+                            (10, "① 데이터 소스 확인 중 🔍"),
+                            (35, "② 시세 데이터 로드 중 💹"),
+                            (65, "③ 기관/외국인 수급 데이터 로드 중 📊"),
+                            (85, "④ 업종 정보 로드 중 🏢"),
+                        ]
 
-            for progress, msg in steps:
-                elapsed = int(time.time() - start_time)
-                progress_bar.progress(progress / 100)
-                status_text.markdown(f"**{msg}** ({elapsed}초)")
-                time.sleep(0.02)
+                    for progress, msg in steps:
+                        elapsed = int(time.time() - start_time)
+                        progress_bar.progress(progress / 100)
+                        status_text.markdown(f"**{msg}** ({elapsed}초 경과)")
+                        time.sleep(0.02)
 
-            # 실제 데이터 로드
-            daily_df = smart_load_daily_data(date_str, market, supply_days)
+                    # 실제 데이터 로드
+                    daily_df = smart_load_daily_data(date_str, market, supply_days)
 
-            # 완료
-            elapsed = int(time.time() - start_time)
-            progress_bar.progress(100 / 100)
-            status_text.markdown(f"✅ **완료!** ({elapsed}초)")
-            time.sleep(0.2)
+                    # 완료
+                    elapsed = int(time.time() - start_time)
+                    progress_bar.progress(100 / 100)
+                    status_text.markdown(f"✅ **완료!** ({elapsed}초)")
+                    time.sleep(0.3)
 
-            # 진행도 제거
-            progress_bar.empty()
-            status_text.empty()
+                    # 로딩 컨테이너 제거
+                    loading_container.empty()
 
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"데이터 로드 실패: {e}")
-            st.error(f"❌ 데이터 로드 실패: {str(e)}")
-            progress_bar.empty()
-            status_text.empty()
-            st.stop()
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"데이터 로드 실패: {e}")
+                    st.error(f"❌ 데이터 로드 실패: {str(e)}")
+                    loading_container.empty()
+                    st.stop()
     else:
         # 스케줄러 캐시 사용
         with st.spinner("캐시 데이터 로드 중..."):
