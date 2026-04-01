@@ -1687,21 +1687,30 @@ def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5,
     """
     스마트 데이터 로더:
     1) 장 마감된 날짜 → 스냅샷 CSV가 있으면 즉시 로드 (~0.5초)
+       - CSV 손상 감지 시 자동 삭제 후 API 로드
     2) 스냅샷 없거나 장중 → API에서 fetch 후 장 마감이면 스냅샷 저장
     3) 등락률이 전부 0(장 외 시간) → 개별 종목 히스토리로 보정
     force_refresh=True: 스냅샷 캐시 무시하고 API에서 직접 fetch (장마감 후 확정 종가 확보용)
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # 1) 스냅샷 체크 (장 마감된 날짜만, force_refresh 아닐 때만)
     if _is_market_closed(date) and not force_refresh:
         cached = load_daily_snapshot(date, market)
         if not cached.empty and "종목명" in cached.columns:
             # 등락률이 전부 0인 비정상 스냅샷이면 무시하고 API에서 다시 fetch
             if "등락률" in cached.columns and (cached["등락률"] != 0).any():
+                logger.info(f"[SmartLoad] 스냅샷 사용: {date}/{market} ({len(cached)}종목)")
                 return cached
+
+    # 스냅샷 없음 → API로 fetch
+    logger.info(f"[SmartLoad] API 로드 시작: {date}/{market}")
 
     # 2) API에서 fetch
     ohlcv = get_market_ohlcv(date, market)
     if ohlcv.empty:
+        logger.warning(f"[SmartLoad] 시세 데이터 없음: {date}/{market}")
         return pd.DataFrame()
 
     tickers_df = get_all_tickers(date, market).set_index("티커")
@@ -1718,6 +1727,8 @@ def smart_load_daily_data(date: str, market: str = "ALL", supply_days: int = 5,
 
     fill_cols = [c for c in ohlcv.columns if "5일" in c]
     ohlcv[fill_cols] = ohlcv[fill_cols].fillna(0)
+
+    logger.info(f"[SmartLoad] API 로드 완료: {date}/{market} ({len(ohlcv)}종목)")
 
     # 3) 등락률이 전부 0이면 (장 외 시간) → 개별 종목 히스토리로 보정
     if "등락률" in ohlcv.columns and not (ohlcv["등락률"] != 0).any():
@@ -1843,12 +1854,32 @@ def save_daily_snapshot(date: str, market: str = "ALL") -> str:
 
 
 def load_daily_snapshot(date: str, market: str = "ALL") -> pd.DataFrame:
-    """저장된 특정 일자 스냅샷 로드. 로컬 → Supabase 순으로 시도."""
+    """저장된 특정 일자 스냅샷 로드. 로컬 → Supabase 순으로 시도.
+
+    CSV 손상 시 자동으로 감지하고 삭제한 후 빈 DataFrame 반환
+    (smart_load_daily_data에서 API로 재생성)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # 1) 로컬 CSV
     filepath = os.path.join(_SNAPSHOT_DIR, f"{date}_{market}.csv")
     if os.path.exists(filepath):
-        df = pd.read_csv(filepath, index_col=0, encoding="utf-8-sig")
-        return df
+        try:
+            df = pd.read_csv(filepath, index_col=0, encoding="utf-8-sig")
+            return df
+        except (pd.errors.ParserError, Exception) as e:
+            # CSV 손상 감지 → 자동 삭제
+            logger.warning(f"손상된 스냅샷 파일 감지: {filepath}")
+            logger.warning(f"  에러: {str(e)[:100]}")
+            try:
+                os.remove(filepath)
+                logger.info(f"손상된 파일 삭제 완료: {filepath}")
+            except Exception as delete_err:
+                logger.error(f"파일 삭제 실패: {delete_err}")
+            # 빈 DataFrame 반환 (smart_load_daily_data에서 API 호출)
+            return pd.DataFrame()
+
     # 2) Supabase fallback (Streamlit Cloud 재시작 후 로컬 파일 없을 때)
     try:
         from data.supabase_db import load_market_snapshot
@@ -1863,6 +1894,7 @@ def load_daily_snapshot(date: str, market: str = "ALL") -> pd.DataFrame:
             return df
     except Exception:
         pass
+
     return pd.DataFrame()
 
 
