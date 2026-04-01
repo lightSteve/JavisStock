@@ -556,46 +556,68 @@ if (st.session_state.get("load_data")
 
 
 def load_daily_data_with_progress(date: str, mkt: str, days: int) -> pd.DataFrame:
-    """단계별 진행도를 표시하면서 데이터 로드."""
-    from data.fetcher import (
-        get_market_ohlcv, get_all_tickers, get_accumulated_investor_trading,
-        get_sector_info, get_latest_trading_date, smart_load_daily_data
-    )
+    """실시간 진행도와 경과 시간을 표시하면서 데이터 로드."""
+    import time
+    import threading
+    from data.fetcher import smart_load_daily_data
 
-    # 진행도 표시
-    progress_placeholder = st.empty()
+    # 진행도 바 + 상태 표시
+    progress_bar = st.progress(0, text="데이터 로드 중... (0%) - 0초 경과")
 
-    try:
-        # 스냅샷 또는 API 데이터 로드 (장 마감시간 판별 포함)
-        progress_placeholder.progress(10, text="① 데이터 소스 확인 중... (10%)")
-        import time
-        time.sleep(0.2)
+    result = {"df": None, "error": None}
+    start_time = time.time()
 
-        # 시세 데이터 로드
-        progress_placeholder.progress(30, text="② 시세 데이터 로드 중... (30%)")
-        time.sleep(0.1)
+    def load_data_thread():
+        """백그라운드에서 데이터 로드."""
+        try:
+            result["df"] = smart_load_daily_data(date, mkt, days)
+        except Exception as e:
+            result["error"] = e
 
-        # 수급 데이터 로드
-        progress_placeholder.progress(60, text="③ 기관/외국인 수급 데이터 로드 중... (60%)")
-        time.sleep(0.1)
+    # 백그라운드 스레드로 로드 시작
+    thread = threading.Thread(target=load_data_thread, daemon=True)
+    thread.start()
 
-        # 업종 정보 로드
-        progress_placeholder.progress(85, text="④ 업종 정보 로드 중... (85%)")
-        time.sleep(0.1)
+    # 진행도 애니메이션 (로드 완료 또는 타임아웃까지)
+    progress = 5
 
-        # 실제 데이터 로드 (위 단계들은 시각적 피드백용)
-        daily_df = smart_load_daily_data(date, mkt, days)
+    while thread.is_alive() and progress < 95:
+        elapsed = int(time.time() - start_time)
+        progress_bar.progress(progress, text=f"데이터 로드 중... ({progress}%) - {elapsed}초 경과")
 
-        # 완료
-        progress_placeholder.progress(100, text="✅ 데이터 로드 완료! (100%)")
-        time.sleep(0.3)
-        progress_placeholder.empty()
+        # 천천히 진행도 증가
+        progress += 2
+        time.sleep(0.15)
 
-        return daily_df
-    except Exception as e:
-        st.error(f"❌ 데이터 로드 중 오류: {e}")
-        progress_placeholder.empty()
-        raise
+    # 로드 완료까지 대기 (최대 2분)
+    thread.join(timeout=120)
+
+    # 남은 구간 빠르게 채우기
+    while progress < 100:
+        elapsed = int(time.time() - start_time)
+        progress += 3
+        progress_bar.progress(min(progress, 100), text=f"마무리 중... ({min(progress, 100)}%) - {elapsed}초 경과")
+        time.sleep(0.05)
+
+    elapsed = int(time.time() - start_time)
+    minutes = elapsed // 60
+    seconds = elapsed % 60
+    time_str = f"{minutes}분 {seconds}초" if minutes > 0 else f"{seconds}초"
+
+    if result["error"]:
+        st.error(f"❌ 데이터 로드 실패: {result['error']}")
+        raise result["error"]
+
+    if result["df"] is None:
+        st.error("❌ 데이터를 가져올 수 없습니다.")
+        raise Exception("Failed to load data")
+
+    # 완료 표시
+    progress_bar.progress(100, text=f"✅ 로드 완료! ({time_str})")
+    time.sleep(0.3)
+    progress_bar.empty()
+
+    return result["df"]
 
 
 if st.session_state.get("load_data"):
@@ -611,8 +633,8 @@ if st.session_state.get("load_data"):
         # 스케줄러에 데이터 없음 → API 직접 로드 (진행도 표시)
         cols = st.columns([1, 4, 1])
         with cols[1]:
-            st.info("📡 **실시간 데이터 수집 중...** (약 1분 30초 소요)")
-            st.caption("약 2,700개 종목 시세 + 기관/외국인 수급 데이터 로딩 중...")
+            st.info("📡 **실시간 데이터 수집 중...** (약 2-3분 소요)")
+            st.caption("약 2,700개 종목 시세 + 기관/외국인 수급 데이터 로딩 중...\n아래 진행도를 확인하세요.")
 
         daily_df = load_daily_data_with_progress(date_str, market, supply_days)
     else:
