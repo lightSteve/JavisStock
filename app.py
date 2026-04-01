@@ -569,7 +569,7 @@ if st.session_state.get("load_data"):
         cols = st.columns([1, 4, 1])
         with cols[1]:
             st.info("📡 **실시간 데이터 수집 중...** (약 1분 30초 소요)")
-            st.caption("6000개 종목 시세 + 기관/외국인 수급 데이터 로딩 중...")
+            st.caption("약 2,700개 종목 시세 + 기관/외국인 수급 데이터 로딩 중...")
 
     with st.spinner("데이터 수집 중... 잠시만 기다려주세요"):
         if _has_scheduler_data:
