@@ -624,21 +624,26 @@ if st.session_state.get("load_data"):
                     # 실제 데이터 로드
                     daily_df = smart_load_daily_data(date_str, market, supply_days)
 
+                    if daily_df.empty:
+                        status_text.markdown("❌ **데이터를 가져올 수 없습니다.**")
+                        st.stop()
+
                     # 완료
                     elapsed = int(time.time() - start_time)
                     progress_bar.progress(100 / 100)
                     status_text.markdown(f"✅ **완료!** ({elapsed}초)")
                     time.sleep(0.3)
 
-                    # 로딩 컨테이너 제거
-                    loading_container.empty()
+                    # 로딩 컨테이너만 깨끗하게 정리 (경고 조심)
+                    progress_bar.empty()
+                    status_text.empty()
 
                 except Exception as e:
                     import logging
                     logger = logging.getLogger(__name__)
-                    logger.error(f"데이터 로드 실패: {e}")
-                    st.error(f"❌ 데이터 로드 실패: {str(e)}")
-                    loading_container.empty()
+                    logger.error(f"데이터 로드 실패: {e}", exc_info=True)
+                    # 에러를 로딩 박스 안에 표시
+                    status_text.markdown(f"❌ **오류 발생: {str(e)[:100]}**")
                     st.stop()
     else:
         # 스케줄러 캐시 사용
