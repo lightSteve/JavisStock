@@ -36,17 +36,18 @@ def render_top_cards(daily_df: pd.DataFrame, top_n: int = 5):
         max_supply = 1
 
     cols = st.columns(min(top_n, 5))
-    for i, (ticker, row) in enumerate(top.iterrows()):
+    for i, row in enumerate(top.itertuples()):
+        ticker = row.Index
         col = cols[i % len(cols)]
-        name = row.get("종목명", ticker)
-        price = row.get("종가", 0)
-        change = row.get("등락률", 0)
-        inst = row.get("기관합계_5일", 0) / 1e8  # 억 원
-        frgn = row.get("외국인합계_5일", 0) / 1e8
-        indv = row.get("개인_5일", 0) / 1e8 if "개인_5일" in row.index else 0
-        sector = row.get("업종", "") if "업종" in row.index else ""
-        market = row.get("시장", "") if "시장" in row.index else ""
-        supply_total = row.get("수급합계", 0)
+        name = getattr(row, '종목명', ticker) if hasattr(row, '종목명') else ticker
+        price = getattr(row, '종가', 0) if hasattr(row, '종가') else 0
+        change = getattr(row, '등락률', 0) if hasattr(row, '등락률') else 0
+        inst = (getattr(row, '기관합계_5일', 0) if hasattr(row, '기관합계_5일') else 0) / 1e8  # 억 원
+        frgn = (getattr(row, '외국인합계_5일', 0) if hasattr(row, '외국인합계_5일') else 0) / 1e8
+        indv = (getattr(row, '개인_5일', 0) if hasattr(row, '개인_5일') else 0) / 1e8
+        sector = getattr(row, '업종', '') if hasattr(row, '업종') else ''
+        market = getattr(row, '시장', '') if hasattr(row, '시장') else ''
+        supply_total = getattr(row, '수급합계', 0) if hasattr(row, '수급합계') else 0
         strength = min(100, max(0, supply_total / max_supply * 100))
 
         # 등락률에 따른 색상

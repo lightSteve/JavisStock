@@ -66,48 +66,13 @@ def render_sidebar() -> dict:
         help="기관/외국인 순매수를 누적 합산할 거래일 수",
     )
 
-    # ── 로드 버튼 (사이드바 상단, 핵심 설정 바로 아래) ──
-    st.sidebar.markdown("---")
-    _load_clicked = st.sidebar.button(
-        "🚀 데이터 로드 & 분석 시작", use_container_width=True, type="primary"
-    )
-
-    # --- 상세 필터 (접이식) ---
-    with st.sidebar.expander("🔬 상세 필터 (차트/기술지표)", expanded=False):
-        chart_filter = st.multiselect(
-            "📊 이동평균 정배열",
-            options=["완전정배열", "정배열초기", "골든크로스"],
-            default=["완전정배열", "정배열초기"],
-            help="이동평균선 배열 상태로 필터링합니다.",
-        )
-
-        rsi_filter = st.multiselect(
-            "RSI 상태",
-            options=["과매도", "약세", "중립", "강세", "과매수"],
-            default=[],
-            help="RSI 30 이하=과매도, 70 이상=과매수",
-        )
-
-        macd_filter = st.multiselect(
-            "MACD 상태",
-            options=["매수신호", "상승강화", "상승둔화", "매도신호", "하락강화", "하락둔화"],
-            default=[],
-            help="MACD 히스토그램 기반 상태 필터",
-        )
-
-        bb_filter = st.multiselect(
-            "볼린저밴드 상태",
-            options=["하단돌파", "하단근접", "중간", "상단근접", "상단돌파"],
-            default=[],
-            help="볼린저밴드 %B 기반 위치 필터",
-        )
-
-        volume_surge = st.checkbox(
-            "거래량 급증(200%↑) 종목만", value=False,
-            help="최근 거래량이 20일 평균 대비 2배 이상인 종목만 표시",
-        )
-
-        top_n = st.slider("Top N 종목 표시", 5, 50, 20)
+    # 상세 필터는 고정값으로 설정 (UI에서 숨김)
+    chart_filter = ["완전정배열", "정배열초기"]  # 기본값
+    rsi_filter = []  # 필터 없음
+    macd_filter = []  # 필터 없음
+    bb_filter = []  # 필터 없음
+    volume_surge = False  # 거래량 급증만 필터링 안 함
+    top_n = 20  # 기본값
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(
@@ -139,5 +104,4 @@ def render_sidebar() -> dict:
         "bb_filter": bb_filter,
         "volume_surge": volume_surge,
         "top_n": top_n,
-        "load_clicked": _load_clicked,
     }

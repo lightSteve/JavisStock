@@ -306,7 +306,8 @@ def _precompute_smart_top3(daily_df: pd.DataFrame, date: str):
     start_str = start_dt.strftime("%Y%m%d")
 
     results = []
-    for ticker, row in pool.iterrows():
+    for row in pool.itertuples():
+        ticker = row.Index
         try:
             ohlcv = get_stock_ohlcv_history(ticker, start_str, date)
             investor = get_investor_trend_individual(ticker)
@@ -319,12 +320,12 @@ def _precompute_smart_top3(daily_df: pd.DataFrame, date: str):
         score, details = calc_composite_score(ohlcv, investor)
         results.append({
             "ticker": ticker,
-            "name": str(row.get("종목명", ticker)),
-            "price": float(row.get("종가", 0)),
-            "change": float(row.get("등락률", 0)),
-            "sector": str(row.get("업종", "")),
-            "inst_5d": float(row.get("기관합계_5일", 0)),
-            "frgn_5d": float(row.get("외국인합계_5일", 0)),
+            "name": str(getattr(row, '종목명', ticker) or ticker),
+            "price": float(getattr(row, '종가', 0) or 0),
+            "change": float(getattr(row, '등락률', 0) or 0),
+            "sector": str(getattr(row, '업종', '') or ''),
+            "inst_5d": float(getattr(row, '기관합계_5일', 0) or 0),
+            "frgn_5d": float(getattr(row, '외국인합계_5일', 0) or 0),
             "ohlcv": ohlcv,
             "investor": investor,
             "score": score,

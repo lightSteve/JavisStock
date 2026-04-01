@@ -70,14 +70,15 @@ def _render_limit_up_section(daily_df: pd.DataFrame):
 def _stock_card_grid(df: pd.DataFrame, badge: str, color: str):
     """종목 카드 그리드."""
     cols = st.columns(min(5, max(1, len(df))))
-    for i, (ticker, row) in enumerate(df.iterrows()):
+    for i, row in enumerate(df.itertuples()):
+        ticker = row.Index
         with cols[i % len(cols)]:
-            name = row.get("종목명", ticker)
-            change = row.get("등락률", 0)
-            price = row.get("종가", 0)
-            tv = row.get("거래대금", 0) / 1e8
-            sector = row.get("업종", "") or ""
-            market = row.get("시장", "") or ""
+            name = getattr(row, '종목명', ticker) if hasattr(row, '종목명') else ticker
+            change = getattr(row, '등락률', 0) if hasattr(row, '등락률') else 0
+            price = getattr(row, '종가', 0) if hasattr(row, '종가') else 0
+            tv = (getattr(row, '거래대금', 0) if hasattr(row, '거래대금') else 0) / 1e8
+            sector = getattr(row, '업종', '') if hasattr(row, '업종') else ''
+            market = getattr(row, '시장', '') if hasattr(row, '시장') else ''
             if not isinstance(sector, str):
                 sector = ""
             st.markdown(

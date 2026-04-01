@@ -148,6 +148,7 @@ def render_sector_heatmap(daily_df: pd.DataFrame):
         )
 
 
+@st.cache_data(ttl=300)
 def render_sector_bar_chart(daily_df: pd.DataFrame):
     """섹터별 수급 막대 차트."""
     if daily_df.empty or "업종" not in daily_df.columns:

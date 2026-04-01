@@ -85,11 +85,13 @@ def _render_inst_proxy(daily_df: pd.DataFrame):
         st.info("기관 순매수 + 양봉 종목이 없습니다.")
         return
 
-    for ticker, row in inst_top.iterrows():
-        name = row.get("종목명", ticker)
-        change = row.get("등락률", 0)
-        inst = row["기관합계_5일"] / 1e8
-        frgn = row.get("외국인합계_5일", 0) / 1e8
+    for row in inst_top.itertuples():
+        ticker = row.Index
+        name = getattr(row, '종목명', ticker) if hasattr(row, '종목명') else ticker
+        change = getattr(row, '등락률', 0) if hasattr(row, '등락률') else 0
+        inst = getattr(row, '기관합계_5일', 0) if hasattr(row, '기관합계_5일') else 0
+        frgn = (getattr(row, '외국인합계_5일', 0) if hasattr(row, '외국인합계_5일') else 0) / 1e8
+        inst = inst / 1e8
         chg_color = "#dc2626" if change > 0 else "#2563eb"
         st.markdown(
             f'<div style="display:flex; justify-content:space-between; '

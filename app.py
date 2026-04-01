@@ -481,23 +481,26 @@ else:
 # ===========================================================================
 
 
-# 장중/마감 모드에 따라 캐시 TTL 및 force_refresh 동적 적용
+# 장중/마감 모드별 고정 캐시 함수
+@st.cache_data(ttl=60, show_spinner="📡 실시간 데이터 로딩 중...")
+def load_daily_data_open(date: str, mkt: str, days: int) -> pd.DataFrame:
+    return smart_load_daily_data(date, mkt, days, force_refresh=True)
+
+
+@st.cache_data(ttl=3600, show_spinner="📡 마감 데이터 로딩 중... (스냅샷)")
+def load_daily_data_closed(date: str, mkt: str, days: int) -> pd.DataFrame:
+    return smart_load_daily_data(date, mkt, days, force_refresh=False)
+
+
 def load_daily_data_dynamic(date: str, mkt: str, days: int) -> pd.DataFrame:
+    """모드에 따라 캐시된 로더 함수 선택."""
     import datetime as _dt
     now = _dt.datetime.now()
     mode = get_market_mode(now)
     if mode == 'open':
-        # 장중: 실시간, 캐시 TTL 60초, force_refresh=True
-        @st.cache_data(ttl=60, show_spinner="📡 실시간 데이터 로딩 중...")
-        def _load(date, mkt, days):
-            return smart_load_daily_data(date, mkt, days, force_refresh=True)
-        return _load(date, mkt, days)
+        return load_daily_data_open(date, mkt, days)
     else:
-        # 마감: 스냅샷, 캐시 TTL 3600초, force_refresh=False
-        @st.cache_data(ttl=3600, show_spinner="📡 마감 데이터 로딩 중... (스냅샷)")
-        def _load(date, mkt, days):
-            return smart_load_daily_data(date, mkt, days, force_refresh=False)
-        return _load(date, mkt, days)
+        return load_daily_data_closed(date, mkt, days)
 
 
 @st.cache_data(ttl=3600, show_spinner="🔍 스크리닝 실행 중...")
@@ -510,11 +513,13 @@ def run_screening(daily_data_json: str, date: str):
 
 
 # 캐시 함수 정의 완료 — 이제 로드 버튼 처리 가능
-if config.get("load_clicked"):
-    # load_daily_data_dynamic.clear()  # 동적 함수이므로 별도 clear 불필요
-    run_screening.clear()
-    st.session_state["load_data"] = True
-    st.session_state["force_refresh"] = True  # 버튼 클릭 시 스냅샷 건너뛰고 API 직접 조회
+# 로그인된 사용자는 자동으로 데이터 로드 시작
+from components.auth import is_logged_in
+if is_logged_in():
+    # 최초 로드 또는 상태 초기화
+    if "load_data" not in st.session_state:
+        st.session_state["load_data"] = True
+        st.session_state["force_refresh"] = False
 
 # ── 스케줄러 자동 갱신 감지: _store에 새 데이터가 있으면 daily_df 자동 교체 ──
 # 장마감 후 종가 확정 데이터가 들어오면 버튼 재클릭 없이 화면 자동 최신화
@@ -539,21 +544,16 @@ if st.session_state.get("load_data"):
     with st.spinner("데이터를 불러오는 중입니다... (최대 1~2분 소요될 수 있습니다)"):
         # 스케줄러에 이미 데이터가 있으면 즉시 사용
         _cached_df, _cached_date, _cached_market, _cached_time = get_cached_data()
-        st.write("[진단] get_cached_data 결과:", _cached_df.shape if _cached_df is not None else None, _cached_date, _cached_market, _cached_time)
         if (_cached_df is not None and not _cached_df.empty
                 and _cached_date == date_str and _cached_market == market):
-            st.write("[진단] 캐시 HIT: 스케줄러 데이터 사용")
             daily_df = _cached_df
             if st.session_state.get("_last_sched_refresh") is None and _cached_time:
                 st.session_state["_last_sched_refresh"] = _cached_time
         else:
-            st.write("[진단] 캐시 MISS: 동적 로딩 시도")
             daily_df = load_daily_data_dynamic(date_str, market, supply_days)
-            st.write("[진단] load_daily_data_dynamic 결과:", type(daily_df), daily_df.shape if daily_df is not None else None)
 
         if daily_df.empty:
             st.error("❌ 데이터를 가져올 수 없습니다. 날짜와 시장을 확인해주세요.")
-            st.write("[진단] daily_df가 empty입니다!", daily_df)
             st.stop()
 
         st.session_state["daily_df"] = daily_df
@@ -573,11 +573,11 @@ if st.session_state.get("load_data"):
     )
 
     # ─── 종목 검색 ─────────────────────────────────────────────────
-    _search_options = [""] + [
-        f"{row['종목명']} ({ticker})" 
-        for ticker, row in daily_df.iterrows() 
-        if pd.notna(row.get('종목명', ''))
-    ]
+    _search_options = [""] + (
+        daily_df[daily_df['종목명'].notna()]
+        .apply(lambda x: f"{x['종목명']} ({x.name})", axis=1)
+        .tolist()
+    )
     search_col1, search_col2 = st.columns([3, 1])
     with search_col1:
         search_picked = st.selectbox(
@@ -985,50 +985,20 @@ if st.session_state.get("load_data"):
             )
 
 else:
-    # 초기 안내 화면
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style="text-align:center; padding:40px 16px 20px;">
-            <div style="font-size:3em; margin-bottom:16px;">📊</div>
-            <h2 style="color:#4f46e5; margin-bottom:8px;">TrendCatcher 시작하기</h2>
-            <p style="color:#64748b; font-size:1em; max-width:500px; margin:0 auto 24px;">
-                왼쪽 사이드바에서 날짜와 시장을 선택한 후<br>
-                <b>"데이터 로드 & 분석 시작"</b> 버튼을 누르세요.
-            </p>
-        </div>
-        <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; padding:0 16px 40px; max-width:700px; margin:0 auto;">
-            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
-                <div style="font-size:1.6em;">🏛️</div>
-                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">기관·외국인 수급</div>
-                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">쌍끌이 종목 포착</div>
+    # 로그인되지 않음 - 안내 화면
+    from components.auth import is_logged_in
+    if not is_logged_in():
+        st.markdown("---")
+        st.markdown(
+            """
+            <div style="text-align:center; padding:40px 16px 20px;">
+                <div style="font-size:3em; margin-bottom:16px;">📊</div>
+                <h2 style="color:#4f46e5; margin-bottom:8px;">TrendCatcher</h2>
+                <p style="color:#64748b; font-size:1em; max-width:500px; margin:0 auto 24px;">
+                    왼쪽 사이드바에서 로그인하세요.<br>
+                    로그인 후 최신 데이터와 분석 결과를 자동으로 확인할 수 있습니다.
+                </p>
             </div>
-            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
-                <div style="font-size:1.6em;">🗺️</div>
-                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">섹터 히트맵</div>
-                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">시가총액 비중 시각화</div>
-            </div>
-            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
-                <div style="font-size:1.6em;">🔥</div>
-                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">AI 발굴 TOP 3</div>
-                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">멀티팩터 점수 분석</div>
-            </div>
-            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
-                <div style="font-size:1.6em;">📈</div>
-                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">종목 상세 차트</div>
-                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">캔들 + 수급 + 실적</div>
-            </div>
-            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
-                <div style="font-size:1.6em;">🎯</div>
-                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">트레이더 5-Type</div>
-                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">테마·뉴스·돌파·바이오·스윙</div>
-            </div>
-            <div style="flex:1 1 140px; background:#fff; border-radius:12px; padding:16px; border:1px solid #e2e8f0; text-align:center;">
-                <div style="font-size:1.6em;">📓</div>
-                <div style="font-weight:700; font-size:0.9em; color:#1e293b; margin-top:6px;">매매 일지</div>
-                <div style="font-size:0.78em; color:#64748b; margin-top:4px;">기록·복기·유형별통계</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )

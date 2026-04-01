@@ -125,12 +125,13 @@ class RealtimePriceCache:
         count = 0
 
         with self._lock:
-            for ticker, row in df.iterrows():
-                price = int(row.get("종가", 0) or 0)
+            for row in df.itertuples():
+                ticker = row.Index
+                price = int(getattr(row, '종가', 0) or 0)
                 if price <= 0:
                     continue
-                rate = float(row.get("등락률", 0.0) or 0.0)
-                name = str(row.get("종목명", ticker) or ticker)
+                rate = float(getattr(row, '등락률', 0.0) or 0.0)
+                name = str(getattr(row, '종목명', ticker) or ticker)
 
                 entry = _PriceEntry(price, rate, name, source)
                 entry.ts = now_ts

@@ -540,31 +540,33 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
         total_buy += buy_amount
         total_eval += eval_amount
 
-        # 최근 확정일 기관/외국인 수급 조회 (Naver) — 5일 누적 계산
-        inst_5d = 0.0
-        frgn_5d = 0.0
-        inst_buy_5d = 0.0   # 양수일 합계
-        inst_sell_5d = 0.0  # 음수일 합계(절댓값)
-        frgn_buy_5d = 0.0
-        frgn_sell_5d = 0.0
+        # 최근 확정일 기관/외국인 수급 조회 (Naver) — 3일 누적 계산
+        inst_3d = 0.0
+        frgn_3d = 0.0
+        inst_buy_3d = 0.0   # 양수일 합계
+        inst_sell_3d = 0.0  # 음수일 합계(절댓값)
+        frgn_buy_3d = 0.0
+        frgn_sell_3d = 0.0
         supply_date_str = ""
         try:
             supply = get_investor_trend_individual(ticker)
             if not supply.empty:
                 supply_sorted = supply.sort_index()
                 supply_date_str = supply_sorted.index[-1].strftime("%m/%d")
-                for val in supply_sorted["기관합계"] / 1e8:
+                # 최근 3일만 사용
+                supply_last3 = supply_sorted.tail(3)
+                for val in supply_last3["기관합계"] / 1e8:
                     if val >= 0:
-                        inst_buy_5d += val
+                        inst_buy_3d += val
                     else:
-                        inst_sell_5d += abs(val)
-                for val in supply_sorted["외국인합계"] / 1e8:
+                        inst_sell_3d += abs(val)
+                for val in supply_last3["외국인합계"] / 1e8:
                     if val >= 0:
-                        frgn_buy_5d += val
+                        frgn_buy_3d += val
                     else:
-                        frgn_sell_5d += abs(val)
-                inst_5d = inst_buy_5d - inst_sell_5d
-                frgn_5d = frgn_buy_5d - frgn_sell_5d
+                        frgn_sell_3d += abs(val)
+                inst_3d = inst_buy_3d - inst_sell_3d
+                frgn_3d = frgn_buy_3d - frgn_sell_3d
         except Exception:
             pass
 
@@ -580,15 +582,15 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                     bucket = intraday.get("bucket", "")
                     # qty × 현재가 → 억원
                     if cur_price > 0:
-                        frgn_5d = fq * cur_price / 1e8
-                        inst_5d = oq * cur_price / 1e8
+                        frgn_3d = fq * cur_price / 1e8
+                        inst_3d = oq * cur_price / 1e8
                     else:
-                        frgn_5d = 0.0
-                        inst_5d = 0.0
-                    inst_buy_5d = inst_5d if inst_5d >= 0 else 0.0
-                    inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
-                    frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
-                    frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
+                        frgn_3d = 0.0
+                        inst_3d = 0.0
+                    inst_buy_3d = inst_3d if inst_3d >= 0 else 0.0
+                    inst_sell_3d = abs(inst_3d) if inst_3d < 0 else 0.0
+                    frgn_buy_3d = frgn_3d if frgn_3d >= 0 else 0.0
+                    frgn_sell_3d = abs(frgn_3d) if frgn_3d < 0 else 0.0
                     supply_date_str = f"가집계 {bucket}"
                     kis_live = True
             except Exception:
@@ -599,12 +601,12 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                 try:
                     kis = get_kis_stock_investor(ticker)
                     if kis:
-                        inst_5d = kis.get("기관", 0.0)
-                        frgn_5d = kis.get("외국인", 0.0)
-                        inst_buy_5d = inst_5d if inst_5d >= 0 else 0.0
-                        inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
-                        frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
-                        frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
+                        inst_3d = kis.get("기관", 0.0)
+                        frgn_3d = kis.get("외국인", 0.0)
+                        inst_buy_3d = inst_3d if inst_3d >= 0 else 0.0
+                        inst_sell_3d = abs(inst_3d) if inst_3d < 0 else 0.0
+                        frgn_buy_3d = frgn_3d if frgn_3d >= 0 else 0.0
+                        frgn_sell_3d = abs(frgn_3d) if frgn_3d < 0 else 0.0
                         import datetime as _dt
                         _today = _dt.date.today().strftime("%Y%m%d")
                         _kis_date = kis.get("date", "")
@@ -628,15 +630,15 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
                     oq = kw.get("기관_qty", 0)
                     # qty × 현재가 → 억원 (수량 기반)
                     if cur_price > 0:
-                        frgn_5d = fq * cur_price / 1e8
-                        inst_5d = oq * cur_price / 1e8
+                        frgn_3d = fq * cur_price / 1e8
+                        inst_3d = oq * cur_price / 1e8
                     else:
-                        frgn_5d = float(fq) / 1e4  # 단위 미상시 만주 단위로 근사
-                        inst_5d = float(oq) / 1e4
-                    inst_buy_5d = inst_5d if inst_5d >= 0 else 0.0
-                    inst_sell_5d = abs(inst_5d) if inst_5d < 0 else 0.0
-                    frgn_buy_5d = frgn_5d if frgn_5d >= 0 else 0.0
-                    frgn_sell_5d = abs(frgn_5d) if frgn_5d < 0 else 0.0
+                        frgn_3d = float(fq) / 1e4  # 단위 미상시 만주 단위로 근사
+                        inst_3d = float(oq) / 1e4
+                    inst_buy_3d = inst_3d if inst_3d >= 0 else 0.0
+                    inst_sell_3d = abs(inst_3d) if inst_3d < 0 else 0.0
+                    frgn_buy_3d = frgn_3d if frgn_3d >= 0 else 0.0
+                    frgn_sell_3d = abs(frgn_3d) if frgn_3d < 0 else 0.0
                     _kw_date = kw.get("date", "")
                     import datetime as _dt
                     _today = _dt.date.today().strftime("%Y%m%d")
@@ -669,12 +671,12 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             "수익률": pnl_rate,
             "당일등락": change_rate,
             "매수일": h.get("buy_date", "-"),
-            "기관최근": inst_5d,
-            "외국인최근": frgn_5d,
-            "기관매수": inst_buy_5d,
-            "기관매도": inst_sell_5d,
-            "외국인매수": frgn_buy_5d,
-            "외국인매도": frgn_sell_5d,
+            "기관최근": inst_3d,
+            "외국인최근": frgn_3d,
+            "기관매수": inst_buy_3d,
+            "기관매도": inst_sell_3d,
+            "외국인매수": frgn_buy_3d,
+            "외국인매도": frgn_sell_3d,
             "수급기준일": supply_date_str,
             "수급실시간": kis_live or kiwoom_live,
             "수급소스": "KIS" if kis_live else ("키움" if kiwoom_live else "Naver"),
@@ -747,10 +749,10 @@ def _render_summary(holdings: list, daily_df: pd.DataFrame, realtime: dict = Non
             inst_color = "#94a3b8" if inst_neutral else ("#ef4444" if inst_d > 0 else "#3b82f6")
             frgn_color = "#94a3b8" if frgn_neutral else ("#ef4444" if frgn_d > 0 else "#3b82f6")
 
-            # 수급 라벨: 실시간이면 당일, 아니면 5일 누적
+            # 수급 라벨: 실시간이면 당일, 아니면 3일 누적
             live_dot = '<span style="color:#ef4444;">●</span> ' if sup_live else ""
-            inst_period = "당일" if sup_live else f"5일({sup_date}까지)"
-            frgn_period = "당일" if sup_live else f"5일({sup_date}까지)"
+            inst_period = "당일" if sup_live else f"3일({sup_date}까지)"
+            frgn_period = "당일" if sup_live else f"3일({sup_date}까지)"
             inst_trend = "중립" if inst_neutral else ("진입중" if inst_d > 0 else "이탈중")
             frgn_trend = "중립" if frgn_neutral else ("진입중" if frgn_d > 0 else "이탈중")
             inst_trend_color = "#94a3b8" if inst_neutral else ("#ef4444" if inst_d > 0 else "#3b82f6")
@@ -890,7 +892,9 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
 
     if not supply.empty:
         supply_sorted = supply.sort_index()
-        total = supply_sorted.sum()
+        # 최근 3일만 누적 계산
+        supply_last3 = supply_sorted.tail(3)
+        total = supply_last3.sum()
         inst_total = total.get("기관합계", 0) / 1e8
         frgn_total = total.get("외국인합계", 0) / 1e8
         indv_total = total.get("개인", 0) / 1e8
@@ -908,17 +912,17 @@ def _analyze_supply_reason(ticker: str, name: str, realtime_info: dict) -> dict:
         latest_parts.append(f"외국인 {frgn_latest:+.1f}억")
         today_line = f"📌 최근({latest_date}): " + " / ".join(latest_parts)
 
-        # 5일 누적
+        # 3일 누적
         parts = []
         if inst_total > 0:
-            parts.append(f"기관 5일 순매수 {inst_total:+.1f}억")
+            parts.append(f"기관 3일 순매수 {inst_total:+.1f}억")
         elif inst_total < 0:
-            parts.append(f"기관 5일 순매도 {inst_total:+.1f}억")
+            parts.append(f"기관 3일 순매도 {inst_total:+.1f}억")
         if frgn_total > 0:
-            parts.append(f"외국인 5일 순매수 {frgn_total:+.1f}억")
+            parts.append(f"외국인 3일 순매수 {frgn_total:+.1f}억")
         elif frgn_total < 0:
-            parts.append(f"외국인 5일 순매도 {frgn_total:+.1f}억")
-        five_day_line = "📊 5일 누적: " + (" / ".join(parts) if parts else "변동 미미")
+            parts.append(f"외국인 3일 순매도 {frgn_total:+.1f}억")
+        five_day_line = "📊 3일 누적: " + (" / ".join(parts) if parts else "변동 미미")
 
         result["supply_summary"] = today_line + "<br>" + five_day_line
 
@@ -1309,7 +1313,7 @@ def _render_supply_detail(ticker: str, idx: int):
         st.caption("수급 데이터를 가져올 수 없습니다.")
         return
 
-    st.markdown("#### 📊 투자자별 수급 흐름 (최근 5거래일)")
+    st.markdown("#### 📊 투자자별 수급 흐름 (평가: 최근 3거래일)")
 
     supply.index = pd.to_datetime(supply.index)
     supply_sorted = supply.sort_index()
@@ -1375,16 +1379,18 @@ def _render_supply_detail(ticker: str, idx: int):
 
     # 수급 요약 테이블
     if not supply_sorted.empty:
-        total = supply_sorted.sum()
+        # 최근 3일만 누적 계산 (평가용)
+        supply_last3 = supply_sorted.tail(3)
+        total = supply_last3.sum()
 
-        inst_buy_total = supply_sorted["기관합계"].clip(lower=0).sum() / 1e8
-        inst_sell_total = supply_sorted["기관합계"].clip(upper=0).abs().sum() / 1e8
+        inst_buy_total = supply_last3["기관합계"].clip(lower=0).sum() / 1e8
+        inst_sell_total = supply_last3["기관합계"].clip(upper=0).abs().sum() / 1e8
         inst_net = inst_buy_total - inst_sell_total
-        frgn_buy_total = supply_sorted["외국인합계"].clip(lower=0).sum() / 1e8
-        frgn_sell_total = supply_sorted["외국인합계"].clip(upper=0).abs().sum() / 1e8
+        frgn_buy_total = supply_last3["외국인합계"].clip(lower=0).sum() / 1e8
+        frgn_sell_total = supply_last3["외국인합계"].clip(upper=0).abs().sum() / 1e8
         frgn_net = frgn_buy_total - frgn_sell_total
-        indv_buy_total = supply_sorted["개인"].clip(lower=0).sum() / 1e8
-        indv_sell_total = supply_sorted["개인"].clip(upper=0).abs().sum() / 1e8
+        indv_buy_total = supply_last3["개인"].clip(lower=0).sum() / 1e8
+        indv_sell_total = supply_last3["개인"].clip(upper=0).abs().sum() / 1e8
         indv_net = indv_buy_total - indv_sell_total
 
         def trend_badge(net):
@@ -1401,7 +1407,7 @@ def _render_supply_detail(ticker: str, idx: int):
         st.markdown(
             f'<div style="background:#f8fafc; border-radius:10px; padding:14px 16px; '
             f'border:1px solid #e2e8f0; font-size:0.83em; margin-top:4px;">'
-            f'<div style="font-weight:700; color:#1e293b; margin-bottom:10px;">📋 5일 수급 요약</div>'
+            f'<div style="font-weight:700; color:#1e293b; margin-bottom:10px;">📋 3일 수급 요약</div>'
             f'<table style="width:100%; border-collapse:collapse;">'
             f'<thead><tr style="color:#64748b; font-size:0.85em;">'
             f'<th style="text-align:left; padding:4px 8px;">구분</th>'
