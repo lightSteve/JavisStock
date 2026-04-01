@@ -257,13 +257,14 @@ def clear_integration_cache(ticker: str = None):
 # ---------------------------------------------------------------------------
 
 def get_latest_trading_date() -> str:
-    """가장 최근 거래일을 YYYYMMDD 형태로 반환."""
+    """가장 최근 거래일을 YYYYMMDD 형태로 반환.
+
+    - 16시 이후: 오늘 (장마감 후 확정 데이터)
+    - 16시 이전: 오늘 (진행 중 데이터, 추후 업데이트 예정)
+    - 주말: 가장 최근 평일
+    """
     today = datetime.date.today()
-    now = datetime.datetime.now()
     dt = today
-    # 장 마감(16시) 전이면 전일 기준
-    if now.hour < 16:
-        dt -= datetime.timedelta(days=1)
     # 주말 건너뛰기
     while dt.weekday() >= 5:
         dt -= datetime.timedelta(days=1)
