@@ -176,10 +176,13 @@ _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop = threading.Event()
 
 # 설정
+
+# 9:10에 첫 데이터 갱신을 위해 REFRESH_MINUTES를 도입
 REFRESH_INTERVAL_SEC = 60  # 1분마다 체크 (정시 갱신 감지용)
 MARKET_OPEN_HOUR = 9
 MARKET_CLOSE_HOUR = 16
 REFRESH_HOURS = [9, 10, 11, 12, 13, 14, 15, 16]  # 정시만 갱신
+REFRESH_MINUTES = {9: 10}  # 9시는 10분에, 나머지는 0분에 갱신
 
 
 def _is_market_hours() -> bool:
@@ -401,8 +404,8 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
     """백그라운드 스케줄러 루프."""
     logger.info(f"[Scheduler] 스케줄러 시작 (정시 갱신: {REFRESH_HOURS}시)")
 
-    # 최초 즉시 갱신: 데이터 → 분석
-    # 장 마감 후 기동 시 스냅샷이 장중 데이터(16:00 이전)이면 종가 확정 데이터로 재fetch
+
+    # 최초 즉시 갱신: 데이터 → 분석 (9시 10분에만 최초 갱신)
     _now_start = datetime.datetime.now()
     _today_str = datetime.date.today().strftime("%Y%m%d")
     _is_post_market_start = (
@@ -416,12 +419,16 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
         logger.info("[Scheduler] 장 마감 후 기동 — 스냅샷이 장중 데이터, 종가 확정 데이터로 초기 갱신")
         _do_post_market_snapshot(date, market, supply_days)
         _snapshot_saved_today = True
+    elif _now_start.hour == 9 and _now_start.minute < 10:
+        # 9시 10분 이전에는 최초 갱신을 하지 않음
+        _snapshot_saved_today = False
     else:
         _do_refresh(date, market, supply_days)
         _snapshot_saved_today = False
     _do_analysis(date)
 
     last_refresh_hour = _now_start.hour  # 이미 갱신한 시간 추적
+
 
     while not _scheduler_stop.is_set():
         # 1분마다 체크
@@ -430,12 +437,15 @@ def _scheduler_loop(date: str, market: str, supply_days: int):
 
         now = datetime.datetime.now()
 
-        # 정시(분==0)이고 지정된 갱신 시간(REFRESH_HOURS)이며 같은 시간에 아직 갱신하지 않았으면
+        # 9시는 10분에, 나머지는 0분에 갱신
+        refresh_minute = REFRESH_MINUTES.get(now.hour, 0)
+
+        # 지정된 갱신 시간(REFRESH_HOURS)이며, 해당 분에, 같은 시간에 아직 갱신하지 않았으면
         if (now.hour in REFRESH_HOURS
-            and now.minute == 0
+            and now.minute == refresh_minute
             and now.hour != last_refresh_hour
             and now.weekday() < 5):  # 평일만
-            logger.info(f"[Scheduler] 정시 갱신: {now.strftime('%H시')}")
+            logger.info(f"[Scheduler] 정시 갱신: {now.strftime('%H시 %M분')}")
             _do_refresh(date, market, supply_days)
             _do_analysis(date)
             last_refresh_hour = now.hour
