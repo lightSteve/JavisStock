@@ -509,6 +509,14 @@ def load_daily_data_closed(date: str, mkt: str, days: int) -> pd.DataFrame:
     return smart_load_daily_data(date, mkt, days, force_refresh=False)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_market_rest_signals():
+    """종합지수 기반 '쉬어가기' 신호 — 5분 캐시 (탭 rerun 마다 재호출 방지)."""
+    kospi = get_index_ohlcv("KOSPI", 120)
+    kosdaq = get_index_ohlcv("KOSDAQ", 120)
+    return check_market_rest_signal(kospi), check_market_rest_signal(kosdaq)
+
+
 def load_daily_data_dynamic(date: str, mkt: str, days: int) -> pd.DataFrame:
     """모드에 따라 캐시된 로더 함수 선택."""
     import datetime as _dt
@@ -758,10 +766,7 @@ if st.session_state.get("load_data"):
         st.metric("🔵 하락 종목", f"{down_count:,}개")
 
     # ─── 종합지수 기반 "쉬어가기" 신호 ──────────────────────────────
-    _kospi_index = get_index_ohlcv("KOSPI", 120)
-    _kosdaq_index = get_index_ohlcv("KOSDAQ", 120)
-    _rest_kospi = check_market_rest_signal(_kospi_index)
-    _rest_kosdaq = check_market_rest_signal(_kosdaq_index)
+    _rest_kospi, _rest_kosdaq = _get_market_rest_signals()
 
     # 둘 중 더 위험한 쪽 기준
     _rest_signals = []
@@ -858,10 +863,14 @@ if st.session_state.get("load_data"):
     ])
 
     # --- 탭 0: 기관·외국인 수급 ---
+    @st.fragment
+    def _tab0_supply(_df):
+        r = render_supply_flow(_df)
+        if r:
+            st.session_state["selected_ticker"] = r
+
     with tab0:
-        selected_from_supply = render_supply_flow(daily_df)
-        if selected_from_supply:
-            st.session_state["selected_ticker"] = selected_from_supply
+        _tab0_supply(daily_df)
 
     # --- 탭 1: 섹터 히트맵 ---
     with tab1:
@@ -869,13 +878,18 @@ if st.session_state.get("load_data"):
         render_sector_bar_chart(daily_df)
 
     # --- 탭 2: 상승 종목 분석 (거래량, 추세, 분기 실적) ---
+    @st.fragment
+    def _tab2_rising(_df):
+        r = render_rising_stocks(_df)
+        if r:
+            st.session_state["selected_ticker"] = r
+
     with tab2:
-        selected_from_rising = render_rising_stocks(daily_df)
-        if selected_from_rising:
-            st.session_state["selected_ticker"] = selected_from_rising
+        _tab2_rising(daily_df)
 
     # --- 탭 3: 오늘의 발굴 종목 ---
-    with tab3:
+    @st.fragment
+    def _tab3_picks(_df, _date_str, _top_n, _chart_filter, _rsi_filter, _macd_filter, _bb_filter, _volume_surge_only):
         import copy as _copy
         from data.price_cache import price_cache as _pc
 
@@ -887,17 +901,17 @@ if st.session_state.get("load_data"):
                 invalidate_analysis()
                 st.rerun()
 
-        _cached_top3 = get_cached_smart_top3(date_str)
-        _cached_screened = get_cached_screened(date_str)
+        _cached_top3 = get_cached_smart_top3(_date_str)
+        _cached_screened = get_cached_screened(_date_str)
 
         # ── 추적 티커 수집 + 일괄 현재가 갱신 ─────────────────────────
         # price_cache.ensure_fresh() 가 TTL 이내 티커는 API 호출 생략 → 중복 방지
         _tracked: set = set()
         if _cached_top3:
             _tracked.update(r["ticker"] for r in _cached_top3)
-        if not daily_df.empty and "기관합계_5일" in daily_df.columns and "외국인합계_5일" in daily_df.columns:
-            _sup = daily_df["기관합계_5일"].fillna(0) + daily_df["외국인합계_5일"].fillna(0)
-            _tracked.update(_sup.nlargest(top_n).index.tolist())
+        if not _df.empty and "기관합계_5일" in _df.columns and "외국인합계_5일" in _df.columns:
+            _sup = _df["기관합계_5일"].fillna(0) + _df["외국인합계_5일"].fillna(0)
+            _tracked.update(_sup.nlargest(_top_n).index.tolist())
         if _cached_screened is not None and not _cached_screened.empty:
             _tracked.update(_cached_screened.index.tolist())
 
@@ -906,9 +920,8 @@ if st.session_state.get("load_data"):
                 _pc.ensure_fresh(list(_tracked))
 
         # ── daily_df 에 캐시 최신 가격 일괄 반영 ──────────────────────
-        # 이 시점부터 daily_df 의 해당 티커 가격은 price_cache 기준으로 통일됩니다.
-        _pc.apply_to_dataframe(daily_df, list(_tracked))
-        st.session_state["daily_df"] = daily_df
+        _pc.apply_to_dataframe(_df, list(_tracked))
+        st.session_state["daily_df"] = _df
 
         # 갱신 시각 표시
         _bulk_ts = _pc.last_bulk_updated()
@@ -917,7 +930,6 @@ if st.session_state.get("load_data"):
                        f"({'장중 5분' if True else '장외 1시간'} TTL · KIS/Naver 자동 선택)")
 
         # ── AI 스마트 Top 3 ────────────────────────────────────────────
-        # daily_df 가 최신 가격이므로, precomputed 의 price 도 캐시 값으로 보정
         _top3_for_display = _copy.deepcopy(_cached_top3) if _cached_top3 else []
         for _r in _top3_for_display:
             _info = _pc.get(_r["ticker"])
@@ -925,12 +937,12 @@ if st.session_state.get("load_data"):
                 _r["price"] = _info["price"]
                 _r["change"] = _info["change_rate"]
 
-        render_smart_top3(daily_df, date_str, precomputed=_top3_for_display or None)
+        render_smart_top3(_df, _date_str, precomputed=_top3_for_display or None)
 
         st.markdown("---")
 
         # ── 수급 TOP 카드 (daily_df 이미 최신 가격) ────────────────────
-        render_top_cards(daily_df, top_n=5)
+        render_top_cards(_df, top_n=5)
 
         st.markdown("---")
 
@@ -939,33 +951,32 @@ if st.session_state.get("load_data"):
             screened = _cached_screened.copy()
             st.caption("⚡ 기술적 지표: 사전 분석 데이터 사용")
 
-            # price_cache 최신 가격 반영 (daily_df 와 동일한 소스)
             _pc.apply_to_dataframe(screened, _cached_screened.index.tolist())
 
             screened = apply_technical_filters(
                 screened,
-                chart_filter=chart_filter,
-                rsi_filter=rsi_filter,
-                macd_filter=macd_filter,
-                bb_filter=bb_filter,
-                volume_surge_only=volume_surge_only,
+                chart_filter=_chart_filter,
+                rsi_filter=_rsi_filter,
+                macd_filter=_macd_filter,
+                bb_filter=_bb_filter,
+                volume_surge_only=_volume_surge_only,
             )
 
-            selected_ticker = render_screened_table(screened, top_n)
+            selected_ticker = render_screened_table(screened, _top_n)
             if selected_ticker:
                 st.session_state["selected_ticker"] = selected_ticker
         else:
             # 사전 분석 캐시 없으면 실시간 분석
-            supply_filtered = screen_by_supply(daily_df)
+            supply_filtered = screen_by_supply(_df)
 
             if _cached_top3:
                 _top3_tickers = [r["ticker"] for r in _cached_top3]
                 _missing = [
                     t for t in _top3_tickers
-                    if t in daily_df.index and (supply_filtered.empty or t not in supply_filtered.index)
+                    if t in _df.index and (supply_filtered.empty or t not in supply_filtered.index)
                 ]
                 if _missing:
-                    _extra = daily_df.loc[_missing].copy()
+                    _extra = _df.loc[_missing].copy()
                     if "수급합계_5일" not in _extra.columns:
                         _extra["수급합계_5일"] = (
                             _extra.get("기관합계_5일", 0).fillna(0)
@@ -975,21 +986,20 @@ if st.session_state.get("load_data"):
 
             if not supply_filtered.empty:
                 with st.spinner("📊 차트 + 기술 지표 분석 중..."):
-                    screened = add_chart_status(supply_filtered.head(top_n * 2), date_str)
+                    screened = add_chart_status(supply_filtered.head(_top_n * 2), _date_str)
 
-                # price_cache 최신 가격 반영
                 _pc.apply_to_dataframe(screened, screened.index.tolist())
 
                 screened = apply_technical_filters(
                     screened,
-                    chart_filter=chart_filter,
-                    rsi_filter=rsi_filter,
-                    macd_filter=macd_filter,
-                    bb_filter=bb_filter,
-                    volume_surge_only=volume_surge_only,
+                    chart_filter=_chart_filter,
+                    rsi_filter=_rsi_filter,
+                    macd_filter=_macd_filter,
+                    bb_filter=_bb_filter,
+                    volume_surge_only=_volume_surge_only,
                 )
 
-                selected_ticker = render_screened_table(screened, top_n)
+                selected_ticker = render_screened_table(screened, _top_n)
                 if selected_ticker:
                     st.session_state["selected_ticker"] = selected_ticker
             else:
@@ -998,12 +1008,19 @@ if st.session_state.get("load_data"):
         st.markdown("---")
 
         # ── 무릎 아래: 저평가 가치주 발굴 ──
-        render_knee_stocks(daily_df, date_str)
+        render_knee_stocks(_df, _date_str)
+
+    with tab3:
+        _tab3_picks(
+            daily_df, date_str, top_n,
+            chart_filter, rsi_filter, macd_filter, bb_filter, volume_surge_only,
+        )
 
     # --- 탭 트레이더: 5-Type 매매 유형별 대시보드 ---
-    with tab_trader:
+    @st.fragment
+    def _tab_trader_content(_df, _date_str):
         # ─── 상단 시장 국면 요약 + PnL 비중 조절 ─────────────────
-        regime = calc_market_regime(daily_df)
+        regime = calc_market_regime(_df)
         pnl_history = st.session_state.get("pnl_history", [])
 
         sizing = suggest_position_size(regime, pnl_history)
@@ -1062,19 +1079,22 @@ if st.session_state.get("load_data"):
             "📊 시장국면상세",
         ])
         with tt_a:
-            render_tab_type_a(daily_df, date_str)
+            render_tab_type_a(_df, _date_str)
         with tt_b:
-            render_tab_type_b(daily_df, date_str)
+            render_tab_type_b(_df, _date_str)
         with tt_c:
-            render_tab_type_c(daily_df, date_str)
+            render_tab_type_c(_df, _date_str)
         with tt_d:
-            render_tab_type_d(daily_df, date_str)
+            render_tab_type_d(_df, _date_str)
         with tt_e:
-            render_tab_type_e(daily_df, date_str)
+            render_tab_type_e(_df, _date_str)
         with tt_strat:
-            render_strategy_picks(daily_df, date_str)
+            render_strategy_picks(_df, _date_str)
         with tt_regime:
-            render_market_regime(daily_df)
+            render_market_regime(_df)
+
+    with tab_trader:
+        _tab_trader_content(daily_df, date_str)
 
     # --- 탭 보유종목 ---
     with tab_portfolio:

@@ -37,10 +37,30 @@ def render_supply_flow(daily_df: pd.DataFrame) -> Optional[str]:
     if "종목유형" in df.columns:
         df = df[df["종목유형"] == "stock"]
 
-    # ─── 항상 최신 가격 반영 ───────────────────────────────
+    # ─── 최신 가격 반영 (스케줄러 bulk 갱신 우선, 없으면 수급 상위 100개만) ──────
     from data.price_cache import price_cache as _pc
+    import datetime as _dt
+
+    # 스케줄러가 최근 5분 이내 bulk 갱신했으면 개별 API 호출 스킵
+    _bulk_ts = _pc.last_bulk_updated()
+    _bulk_fresh = (
+        _bulk_ts is not None
+        and (_dt.datetime.now() - _bulk_ts).total_seconds() < 300
+    )
+    if not _bulk_fresh:
+        # bulk 갱신이 오래됐거나 없으면 수급 상위 100개만 개별 갱신 (전종목 X)
+        _top_tickers = (
+            df.assign(_supply_sum=(
+                df.get("기관합계_5일", pd.Series(0, index=df.index)).fillna(0)
+                + df.get("외국인합계_5일", pd.Series(0, index=df.index)).fillna(0)
+            ))
+            .nlargest(100, "_supply_sum")
+            .index.tolist()
+        )
+        if _pc.needs_refresh(_top_tickers):
+            _pc.ensure_fresh(_top_tickers)
+
     tickers = df.index.tolist()
-    _pc.ensure_fresh(tickers)
     _pc.apply_to_dataframe(df, tickers)
 
     # ─── 수급 대시보드 ─────────────────────────────────────────
