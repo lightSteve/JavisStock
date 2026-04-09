@@ -62,8 +62,14 @@ def _render_program_trading(daily_df: pd.DataFrame, date_str: str):
     st.markdown("### 📊 프로그램 순매수 추적기")
     st.caption("뉴스 없이 프로그램 매수가 선행되며 전고점 돌파를 시도하는 종목")
 
-    with st.spinner("프로그램 매매 데이터 수집 중..."):
-        prog_df = get_program_trading_top()
+    # 스케줄러 사전 캐시 우선 → 없으면 직접 fetch (TTL+파일 스냅샷 포함)
+    from data.scheduler import get_cached_program_trading
+    prog_df = get_cached_program_trading()
+    if prog_df is None:
+        with st.spinner("프로그램 매매 데이터 수집 중..."):
+            prog_df = get_program_trading_top()
+    else:
+        prog_df = prog_df.copy()
 
     if prog_df.empty:
         # 프로그램 데이터 없으면 기관 수급 기반 대체
@@ -376,7 +382,12 @@ def _render_multi_theme_overlap(daily_df: pd.DataFrame):
     st.caption("두 가지 이상의 강한 테마에 동시 탑재되며 급등하는 '특이 현상' 종목")
 
     with st.spinner("테마 중첩 분석 중..."):
-        theme_df = get_theme_list()
+        from data.scheduler import get_cached_theme_list
+        theme_df = get_cached_theme_list()
+        if theme_df is None:
+            theme_df = get_theme_list()
+        else:
+            theme_df = theme_df.copy()
 
     if theme_df.empty:
         # 업종 + 거래대금 급등 기반 대체

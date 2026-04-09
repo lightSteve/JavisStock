@@ -202,9 +202,11 @@ def _do_refresh(date: str, market: str, supply_days: int):
         _store.is_refreshing = True
         logger.info(f"[Scheduler] 데이터 갱신 시작: {date} / {market}")
 
-        # 인메모리 캐시 클리어 (전종목 시세 + 수급 integration)
+        # 인메모리 캐시 클리어 (전종목 시세 + 수급 integration + 테마/프로그램 매매)
+        _clear_keys = {"theme_list", "_ts_theme_list", "program_trading", "_ts_program_trading"}
         for k in [k for k in list(_cache)
-                  if k.startswith("stocks_") or k.startswith("integration_")]:
+                  if k.startswith("stocks_") or k.startswith("integration_")
+                  or k in _clear_keys]:
             _cache.pop(k, None)
 
         daily_df = smart_load_daily_data(date, market, supply_days)
@@ -511,6 +513,20 @@ def _do_post_market_snapshot(date: str, market: str, supply_days: int):
             logger.info(f"[Scheduler] 장마감 스냅샷 저장 완료: {len(daily_df)}종목")
         else:
             logger.warning("[Scheduler] 장마감 스냅샷 저장 실패: 데이터 비어있음")
+
+        # 프로그램 매매 + 테마 데이터도 장마감 파일로 저장
+        # (get_program_trading_top / get_theme_list 내부에서 is_market_closed() 시 자동 저장)
+        try:
+            from data.fetcher import get_program_trading_top, get_theme_list
+            _cache.pop("program_trading", None)
+            _cache.pop("_ts_program_trading", None)
+            _cache.pop("theme_list", None)
+            _cache.pop("_ts_theme_list", None)
+            get_program_trading_top()
+            get_theme_list()
+            logger.info("[Scheduler] 프로그램/테마 스냅샷 저장 완료")
+        except Exception as _e:
+            logger.warning(f"[Scheduler] 프로그램/테마 스냅샷 저장 실패: {_e}")
 
     except Exception as e:
         logger.error(f"[Scheduler] 장마감 스냅샷 저장 실패: {e}")

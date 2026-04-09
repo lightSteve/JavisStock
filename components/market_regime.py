@@ -147,8 +147,13 @@ def _render_theme_map(daily_df: pd.DataFrame):
     """당일 자금 집중 상위 3개 테마 시각화."""
     st.markdown("### 🗺️ 주도 테마 맵 (Top 3)")
 
+    from data.scheduler import get_cached_theme_list
     with st.spinner("테마 데이터 수집 중..."):
-        theme_df = get_theme_list()
+        theme_df = get_cached_theme_list()
+        if theme_df is None:
+            theme_df = get_theme_list()
+        else:
+            theme_df = theme_df.copy()
 
     if theme_df.empty:
         # 테마 스크래핑 실패 시, 업종 기반 대체 분석

@@ -1958,12 +1958,34 @@ def get_theme_list() -> pd.DataFrame:
     """
     Naver Finance 테마별 시세 스크래핑.
     반환: columns=[테마명, 테마번호, 등락률, 종목수]
+
+    캐싱 전략:
+    - 장중: 10분 TTL (인메모리)
+    - 장외: 당일 파일 스냅샷 우선 → 없으면 API 후 파일 저장 (8시간 TTL)
     """
     cache_key = "theme_list"
-    if cache_key in _cache:
-        cached = _cache[cache_key]
-        if isinstance(cached, pd.DataFrame):
-            return cached
+    ts_key = "_ts_theme_list"
+    now_ts = time.time()
+    ttl = 600 if is_market_open() else 28800  # 장중 10분 / 장외 8시간
+
+    # 1) 인메모리 캐시 (TTL 체크)
+    if (cache_key in _cache and isinstance(_cache[cache_key], pd.DataFrame)
+            and now_ts - _cache.get(ts_key, 0) < ttl):
+        return _cache[cache_key]
+
+    # 2) 장외 시간: 당일 파일 스냅샷 확인
+    if is_market_closed():
+        _today = datetime.date.today().strftime("%Y%m%d")
+        _fpath = os.path.join(_SNAPSHOT_DIR, f"{_today}_theme_list.csv")
+        if os.path.exists(_fpath):
+            try:
+                _df = pd.read_csv(_fpath, encoding="utf-8-sig")
+                if not _df.empty:
+                    _cache[cache_key] = _df
+                    _cache[ts_key] = now_ts
+                    return _df
+            except Exception:
+                pass
 
     try:
         from bs4 import BeautifulSoup
@@ -2010,7 +2032,21 @@ def get_theme_list() -> pd.DataFrame:
     if not themes:
         return pd.DataFrame()
     df = pd.DataFrame(themes)
+
+    # 3) 인메모리 캐시 저장
     _cache[cache_key] = df
+    _cache[ts_key] = now_ts
+
+    # 4) 장외이면 파일 스냅샷에도 저장 (앱 재시작 후에도 즉시 로드 가능)
+    if is_market_closed():
+        _today = datetime.date.today().strftime("%Y%m%d")
+        _fpath = os.path.join(_SNAPSHOT_DIR, f"{_today}_theme_list.csv")
+        try:
+            os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+            df.to_csv(_fpath, encoding="utf-8-sig", index=False)
+        except Exception:
+            pass
+
     return df
 
 
@@ -2083,12 +2119,34 @@ def get_program_trading_top() -> pd.DataFrame:
     """
     프로그램 매매 순매수/순매도 상위 종목 스크래핑.
     반환: columns=[티커, 종목명, 프로그램순매수(백만원), 유형(순매수/순매도)]
+
+    캐싱 전략:
+    - 장중: 10분 TTL (인메모리)
+    - 장외: 당일 파일 스냅샷 우선 → 없으면 API 후 파일 저장 (8시간 TTL)
     """
     cache_key = "program_trading"
-    if cache_key in _cache:
-        cached = _cache[cache_key]
-        if isinstance(cached, pd.DataFrame):
-            return cached
+    ts_key = "_ts_program_trading"
+    now_ts = time.time()
+    ttl = 600 if is_market_open() else 28800  # 장중 10분 / 장외 8시간
+
+    # 1) 인메모리 캐시 (TTL 체크)
+    if (cache_key in _cache and isinstance(_cache[cache_key], pd.DataFrame)
+            and now_ts - _cache.get(ts_key, 0) < ttl):
+        return _cache[cache_key]
+
+    # 2) 장외 시간: 당일 파일 스냅샷 확인
+    if is_market_closed():
+        _today = datetime.date.today().strftime("%Y%m%d")
+        _fpath = os.path.join(_SNAPSHOT_DIR, f"{_today}_program_trading.csv")
+        if os.path.exists(_fpath):
+            try:
+                _df = pd.read_csv(_fpath, encoding="utf-8-sig")
+                if not _df.empty:
+                    _cache[cache_key] = _df
+                    _cache[ts_key] = now_ts
+                    return _df
+            except Exception:
+                pass
 
     try:
         from bs4 import BeautifulSoup
@@ -2134,7 +2192,21 @@ def get_program_trading_top() -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(all_rows)
+
+    # 3) 인메모리 캐시 저장
     _cache[cache_key] = df
+    _cache[ts_key] = now_ts
+
+    # 4) 장외이면 파일 스냅샷에도 저장 (앱 재시작 후에도 즉시 로드 가능)
+    if is_market_closed():
+        _today = datetime.date.today().strftime("%Y%m%d")
+        _fpath = os.path.join(_SNAPSHOT_DIR, f"{_today}_program_trading.csv")
+        try:
+            os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+            df.to_csv(_fpath, encoding="utf-8-sig", index=False)
+        except Exception:
+            pass
+
     return df
 
 
@@ -2274,6 +2346,7 @@ def get_us_index_summary() -> List[Dict]:
             try:
                 ticker = yf.Ticker(sym)
                 hist = ticker.history(period="5d", interval="1d")
+                hist = hist.dropna(subset=["Close"])
                 if hist.empty or len(hist) < 2:
                     continue
                 close = float(hist["Close"].iloc[-1])

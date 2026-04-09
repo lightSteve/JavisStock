@@ -122,8 +122,13 @@ def _render_theme_leader_board(daily_df: pd.DataFrame):
     """테마별 1등주/2등주 서열 추적."""
     st.markdown("### 📋 테마별 서열 추적기")
 
+    from data.scheduler import get_cached_theme_list
     with st.spinner("테마 서열 분석 중..."):
-        theme_df = get_theme_list()
+        theme_df = get_cached_theme_list()
+        if theme_df is None:
+            theme_df = get_theme_list()
+        else:
+            theme_df = theme_df.copy()
 
     if theme_df.empty:
         # 업종 기반 대체 분석

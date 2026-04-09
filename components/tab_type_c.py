@@ -41,8 +41,14 @@ def _render_program_flow(daily_df: pd.DataFrame, date_str: str):
     """프로그램 순매수 상위 종목."""
     st.markdown("### 📊 프로그램 순매수 추적기")
 
-    with st.spinner("프로그램 매매 데이터 수집 중..."):
-        prog_df = get_program_trading_top()
+    # 스케줄러 사전 캐시 우선 → 없으면 직접 fetch (TTL+파일 스냅샷 포함)
+    from data.scheduler import get_cached_program_trading
+    prog_df = get_cached_program_trading()
+    if prog_df is None:
+        with st.spinner("프로그램 매매 데이터 수집 중..."):
+            prog_df = get_program_trading_top()
+    else:
+        prog_df = prog_df.copy()
 
     if prog_df.empty:
         st.caption("⚠️ 프로그램 데이터 수집 불가 — 기관 순매수 기반 대체.")
