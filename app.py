@@ -13,39 +13,40 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 
-@st.cache_data(ttl=3600)
-def get_usdkrw():
-    df = yf.download('KRW=X', period='1y', progress=False)
-    df.index = pd.to_datetime(df.index).tz_localize(None)
+def _normalize_index(df):
+    """yfinance DataFrame 인덱스를 timezone-naive DatetimeIndex로 정규화"""
+    idx = pd.to_datetime(df.index)
+    if idx.tz is not None:
+        idx = idx.tz_convert(None)
+    df.index = idx
     return df
 
+def _flatten_columns(df):
+    """MultiIndex 컬럼을 첫 번째 레벨(Close, High, …)로 평탄화"""
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    return df
+
+@st.cache_data(ttl=3600)
+def load_market_data():
+    usdkrw = yf.download('KRW=X', period='1y', progress=False)
+    spx    = yf.download('^GSPC',  period='1y', progress=False)
+    kospi  = yf.download('^KS11',  period='1y', progress=False)
+
+    for df in [usdkrw, spx, kospi]:
+        _flatten_columns(df)
+        _normalize_index(df)
+
+    usdkrw_s = usdkrw['Close'].dropna().rename('Close_usdkrw')
+    spx_s    = spx['Close'].dropna().rename('Close_spx')
+    kospi_s  = kospi['Close'].dropna().rename('Close_kospi')
+
+    merged = pd.concat([usdkrw_s, spx_s, kospi_s], axis=1, join='inner').dropna()
+    return merged
 
 
-# 1. 데이터 수집: 환율, S&P500, KOSPI
-raw_usdkrw = get_usdkrw().dropna()
-if isinstance(raw_usdkrw.columns, pd.MultiIndex):
-    raw_usdkrw.columns = raw_usdkrw.columns.get_level_values(0)
-usdkrw_df = raw_usdkrw[['Close']].copy()
-
-spx_df = yf.download('^GSPC', period='1y', progress=False)
-if isinstance(spx_df.columns, pd.MultiIndex):
-    spx_df.columns = spx_df.columns.get_level_values(0)
-spx_df = spx_df[['Close']].copy()
-spx_df.index = pd.to_datetime(spx_df.index).tz_localize(None) if pd.to_datetime(spx_df.index).tz is None else pd.to_datetime(spx_df.index).tz_convert(None)
-
-kospi_df = yf.download('^KS11', period='1y', progress=False)
-if isinstance(kospi_df.columns, pd.MultiIndex):
-    kospi_df.columns = kospi_df.columns.get_level_values(0)
-kospi_df = kospi_df[['Close']].copy()
-kospi_df.index = pd.to_datetime(kospi_df.index).tz_localize(None) if pd.to_datetime(kospi_df.index).tz is None else pd.to_datetime(kospi_df.index).tz_convert(None)
-
-
-# 2. 날짜 기준 merge (공통 날짜만) 및 컬럼명 명확화
-merged = usdkrw_df.rename(columns={'Close': 'Close_usdkrw'})
-merged = merged.join(spx_df.rename(columns={'Close': 'Close_spx'}), how='inner')
-merged = merged.join(kospi_df.rename(columns={'Close': 'Close_kospi'}), how='inner')
-
-merged = merged.dropna()
+# 1. 데이터 수집 및 merge
+merged = load_market_data()
 
 # 데이터가 비었는지 체크
 if merged.empty:
@@ -129,7 +130,7 @@ elif gap_kospi < -0.01:
 else:
     st.info("최근 1년간 환율 변화가 KOSPI의 달러 기준 수익률에 큰 영향을 주지 않았습니다.")
 
-if usdkrw_df.empty or 'Close' not in usdkrw_df.columns:
+if merged.empty or 'Close_usdkrw' not in merged.columns:
     st.error("USD/KRW 환율 데이터가 없습니다. 네트워크 또는 API 오류일 수 있습니다.")
 else:
     def safe_float(val):
@@ -142,15 +143,16 @@ else:
         except Exception:
             return 0.0
 
-    last = safe_float(usdkrw_df['Close'].iloc[-1])
-    prev = safe_float(usdkrw_df['Close'].iloc[-2]) if len(usdkrw_df) > 1 else last
+    usdkrw_series = merged[['Close_usdkrw']].rename(columns={'Close_usdkrw': 'Close'})
+    last = safe_float(usdkrw_series['Close'].iloc[-1])
+    prev = safe_float(usdkrw_series['Close'].iloc[-2]) if len(usdkrw_series) > 1 else last
     diff = float(last - prev)
     diff_pct = float((diff / prev * 100) if prev != 0 and not np.isnan(prev) else 0.0)
     st.metric("USD/KRW 환율", f"{last:,.2f}", f"{diff:+.2f} ({diff_pct:+.2f}%)")
 
     # 최근 6개월~1년치 환율 추세선
     fig = px.line(
-        usdkrw_df.reset_index(),
+        usdkrw_series.reset_index(),
         x='Date', y='Close',
         title='USD/KRW 환율 추이 (최근 1년)',
         labels={'Close': '환율', 'Date': '날짜'},
