@@ -31,11 +31,13 @@ spx_df = yf.download('^GSPC', period='1y', progress=False)
 if isinstance(spx_df.columns, pd.MultiIndex):
     spx_df.columns = spx_df.columns.get_level_values(0)
 spx_df = spx_df[['Close']].copy()
+spx_df.index = pd.to_datetime(spx_df.index).tz_localize(None) if pd.to_datetime(spx_df.index).tz is None else pd.to_datetime(spx_df.index).tz_convert(None)
 
 kospi_df = yf.download('^KS11', period='1y', progress=False)
 if isinstance(kospi_df.columns, pd.MultiIndex):
     kospi_df.columns = kospi_df.columns.get_level_values(0)
 kospi_df = kospi_df[['Close']].copy()
+kospi_df.index = pd.to_datetime(kospi_df.index).tz_localize(None) if pd.to_datetime(kospi_df.index).tz is None else pd.to_datetime(kospi_df.index).tz_convert(None)
 
 
 # 2. 날짜 기준 merge (공통 날짜만) 및 컬럼명 명확화
