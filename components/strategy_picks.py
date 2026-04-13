@@ -25,6 +25,7 @@ from logic_strategies import (
 # 메인 렌더링
 # ═══════════════════════════════════════════════════════════════════════════
 
+@st.fragment
 def render_strategy_picks(daily_df: pd.DataFrame, date_str: str):
     """7가지 전략별 추천 종목 탭 렌더링."""
     st.markdown("## 📋 전략별 종목추천")
@@ -56,6 +57,7 @@ def render_strategy_picks(daily_df: pd.DataFrame, date_str: str):
             )
 
 
+@st.fragment
 def _render_strategy_section(daily_df: pd.DataFrame, date_str: str,
                               strat: dict, func_info: tuple):
     """개별 전략 섹션 렌더링."""
