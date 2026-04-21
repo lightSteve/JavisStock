@@ -93,9 +93,15 @@ class _AnalysisStore:
         self._date: str = ""
         self._updated_at: Optional[datetime.datetime] = None
         self._is_analyzing: bool = False
+        # 날짜 전환 시 이전 거래일 결과를 보전 (장전 fallback용)
+        self._prev_smart_top3: List[Dict[str, Any]] = []
+        self._prev_screened_df: Optional[pd.DataFrame] = None
 
     def put_smart_top3(self, results: list, date: str):
         with self._lock:
+            # 날짜가 바뀔 때만 이전 결과를 prev에 보존
+            if self._date and self._date != date and self._smart_top3:
+                self._prev_smart_top3 = list(self._smart_top3)
             self._smart_top3 = results
             self._date = date
             self._updated_at = datetime.datetime.now()
@@ -103,17 +109,26 @@ class _AnalysisStore:
     def get_smart_top3(self, date: str = "") -> list:
         with self._lock:
             if date and self._date != date:
+                # 날짜 미스매치: 아직 오늘 분석이 없으면 이전 거래일 결과 fallback
+                if self._prev_smart_top3:
+                    return list(self._prev_smart_top3)
                 return []
             return list(self._smart_top3)
 
     def put_screened(self, df: pd.DataFrame, date: str):
         with self._lock:
+            # 날짜가 바뀔 때만 이전 결과를 prev에 보존
+            if self._date and self._date != date and self._screened_df is not None:
+                self._prev_screened_df = self._screened_df.copy()
             self._screened_df = df
             self._date = date
 
     def get_screened(self, date: str = "") -> Optional[pd.DataFrame]:
         with self._lock:
             if date and self._date != date:
+                # 날짜 미스매치: 아직 오늘 분석이 없으면 이전 거래일 결과 fallback
+                if self._prev_screened_df is not None:
+                    return self._prev_screened_df.copy()
                 return None
             if self._screened_df is not None:
                 return self._screened_df.copy()
@@ -615,11 +630,16 @@ def get_cached_smart_top3(date: str = "") -> list:
 
 
 def invalidate_analysis():
-    """분석 캐시 초기화 — 다음 render_smart_top3 호출 시 재계산 트리거."""
+    """분석 캐시 초기화 — 다음 render_smart_top3 호출 시 재계산 트리거.
+
+    🔄 버튼(강제 재분석) 호출 시 prev 캐시도 같이 초기화한다.
+    """
     with _analysis._lock:
         _analysis._smart_top3 = []
         _analysis._screened_df = None
         _analysis._date = ""
+        _analysis._prev_smart_top3 = []
+        _analysis._prev_screened_df = None
 
 
 def get_cached_screened(date: str = "") -> Optional[pd.DataFrame]:
