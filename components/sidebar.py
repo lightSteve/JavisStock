@@ -72,7 +72,7 @@ def render_sidebar() -> dict:
     macd_filter = []  # 필터 없음
     bb_filter = []  # 필터 없음
     volume_surge = False  # 거래량 급증만 필터링 안 함
-    top_n = 20  # 기본값
+    top_n = 30  # 기본값
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(
