@@ -14,11 +14,10 @@ import pandas as pd
 import plotly.express as px
 
 def _normalize_index(df):
-    """yfinance DataFrame 인덱스를 timezone-naive DatetimeIndex로 정규화"""
-    idx = pd.to_datetime(df.index)
-    if idx.tz is not None:
-        idx = idx.tz_localize(None)  # tz_convert(None)은 UTC로 변환 후 제거 → 날짜 어긋남 발생
-    df.index = idx.normalize()  # 시간 컴포넌트 제거하여 날짜만 유지
+    """yfinance DataFrame 인덱스를 timezone-naive date-only DatetimeIndex로 정규화
+    strftime 방식으로 로컬 날짜를 그대로 보존 (pandas 버전 무관하게 안전)
+    """
+    df.index = pd.to_datetime(pd.to_datetime(df.index).strftime('%Y-%m-%d'))
     return df
 
 def _flatten_columns(df):
@@ -41,16 +40,27 @@ def load_market_data():
     spx_s    = spx['Close'].dropna().rename('Close_spx')
     kospi_s  = kospi['Close'].dropna().rename('Close_kospi')
 
+    # 디버그: 각 시리즈 길이와 인덱스 샘플 반환
+    debug_info = {
+        'usdkrw_len': len(usdkrw_s),
+        'spx_len': len(spx_s),
+        'kospi_len': len(kospi_s),
+        'usdkrw_sample': str(usdkrw_s.index[:2].tolist()) if len(usdkrw_s) > 0 else 'empty',
+        'spx_sample': str(spx_s.index[:2].tolist()) if len(spx_s) > 0 else 'empty',
+        'kospi_sample': str(kospi_s.index[:2].tolist()) if len(kospi_s) > 0 else 'empty',
+    }
+
     merged = pd.concat([usdkrw_s, spx_s, kospi_s], axis=1, join='inner').dropna()
-    return merged
+    return merged, debug_info
 
 
 # 1. 데이터 수집 및 merge
-merged = load_market_data()
+merged, debug_info = load_market_data()
 
 # 데이터가 비었는지 체크
 if merged.empty:
     st.error("공통 날짜에 데이터가 없습니다. 데이터 소스를 확인하세요.")
+    st.json(debug_info)
     st.stop()
 
 
