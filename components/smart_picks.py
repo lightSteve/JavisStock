@@ -92,15 +92,28 @@ def _render_score_card(res: dict, rank: int):
         if details.get("소외주반등") else ""
     )
 
+    surged_badge = (
+        '<span style="background:#fee2e2; color:#991b1b; padding:2px 7px;'
+        ' border-radius:8px; font-size:0.68em; font-weight:700;">⚡ 이미급등</span>'
+        if details.get("이미급등") else ""
+    )
+
+    early_badge = (
+        '<span style="background:#dcfce7; color:#166534; padding:2px 7px;'
+        ' border-radius:8px; font-size:0.68em; font-weight:700;">🌱 매집중</span>'
+        if details.get("선행매집점수", 0) >= 50 else ""
+    )
+
     inst_val = res["inst_5d"] / 1e8
     frgn_val = res["frgn_5d"] / 1e8
     inst_sign = "+" if inst_val > 0 else ""
     frgn_sign = "+" if frgn_val > 0 else ""
 
     # score bar segments
-    w_inst = details["수급강도점수"] * 0.4
-    w_mom = details["가격모멘텀점수"] * 0.3
-    w_vol = details["거래량급증점수"] * 0.3
+    w_inst = details["수급강도점수"] * 0.3
+    w_mom = details["가격모멘텀점수"] * 0.2
+    w_vol = details["거래량급증점수"] * 0.2
+    w_early = details.get("선행매집점수", 0) * 0.3
 
     score_breakdown = (
         f'<div style="margin-top:8px;">'
@@ -109,9 +122,10 @@ def _render_score_card(res: dict, rank: int):
         f'<div title="수급강도" style="height:8px; width:{w_inst:.1f}%; background:#2563eb; border-radius:3px;"></div>'
         f'<div title="모멘텀" style="height:8px; width:{w_mom:.1f}%; background:#7c3aed; border-radius:3px;"></div>'
         f'<div title="거래량" style="height:8px; width:{w_vol:.1f}%; background:#ea580c; border-radius:3px;"></div>'
+        f'<div title="선행매집" style="height:8px; width:{w_early:.1f}%; background:#16a34a; border-radius:3px;"></div>'
         f'</div>'
         f'<div style="font-size:0.65em; color:#94a3b8; margin-top:3px;">'
-        f'수급 {details["수급강도점수"]:.0f} / 모멘텀 {details["가격모멘텀점수"]:.0f} / 거래량 {details["거래량급증점수"]:.0f}'
+        f'수급 {details["수급강도점수"]:.0f} / 모멘텀 {details["가격모멘텀점수"]:.0f} / 거래량 {details["거래량급증점수"]:.0f} / 선행매집 {details.get("선행매집점수", 0):.0f}'
         f'</div>'
         f'</div>'
     )
@@ -127,7 +141,7 @@ def _render_score_card(res: dict, rank: int):
         # 랭크 + 배지
         f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
         f'<span style="font-size:1.4em;">{rank_label}</span>'
-        f'{anomaly_badge}'
+        f'<div style="display:flex; gap:4px;">{early_badge}{anomaly_badge}{surged_badge}</div>'
         f'</div>'
         # 티커 + 시장 + 섹터
         f'<div style="font-size:0.72em; color:#94a3b8; margin-bottom:4px;">'

@@ -162,6 +162,92 @@ def is_anomaly_neglected_rebound(ohlcv: pd.DataFrame) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# 선행 매집 신호 감지 (Early Accumulation Signal)
+# ---------------------------------------------------------------------------
+
+
+def calc_early_accumulation_score(
+    ohlcv: pd.DataFrame,
+    investor_df: pd.DataFrame,
+) -> Tuple[float, bool]:
+    """
+    선행 매집 + 초기 이동 신호 점수 (0~100).
+
+    목적: 급등 전 초기 움직임(3~15%)을 가진 종목을 조기 포착.
+
+    3일 수익률에 따른 처리:
+    - 0 ~ 3%   : 아직 본격 이동 없음 (중립)
+    - 3% ~ 15% : ✅ 초기 이동 신호 → 보너스 +30점 (이게 핵심 타이밍)
+    - 15% ~ 25%: 중간 단계 → 감점 -20점 (조금 늦음)
+    - 25% 초과  : ❌ 이미 급등 → 종합점수 0 (너무 늦음)
+
+    구성:
+    - 초기 이동 보너스 (3~15% 상승 구간)    : +30점 가산
+    - 가격 박스권 + 거래량 증가 (매집 패턴) : 최대 40점
+    - 기관의 꾸준한 조용한 순매수           : 최대 30점
+
+    반환: (score, is_already_surged)
+    """
+    if ohlcv.empty or len(ohlcv) < 20:
+        return 0.0, False
+
+    close = ohlcv["종가"]
+    volume = ohlcv["거래량"]
+
+    # ── 수익률 계산 ──
+    ret_3d = (close.iloc[-1] / close.iloc[-4] - 1) * 100 if len(close) >= 4 else 0.0
+    ret_5d = (close.iloc[-1] / close.iloc[-6] - 1) * 100 if len(close) >= 6 else 0.0
+
+    # 이미 너무 많이 오른 종목 → 추천 제외
+    is_already_surged = ret_3d > 25.0 or ret_5d > 35.0
+    if is_already_surged:
+        return 0.0, True
+
+    score = 0.0
+
+    # ── 1) 초기 이동 보너스 ──
+    # 3~15% 오른 구간 = 막 움직이기 시작한 골든타임
+    if 3.0 <= ret_3d <= 15.0:
+        # 7% 전후 최대 점수, 양끝으로 갈수록 감소 (포물선)
+        bonus = 30 - abs(ret_3d - 7.0) * 1.5
+        score += max(0, bonus)
+    elif 15.0 < ret_3d <= 25.0:
+        # 조금 늦음 → 소폭 감점
+        score -= 20
+
+    # ── 2) 가격 박스권 + 거래량 증가 패턴 ──
+    price_10d = close.tail(10)
+    price_range_pct = (price_10d.max() - price_10d.min()) / price_10d.mean() * 100
+
+    avg_vol_20 = volume.iloc[-21:-1].mean() if len(volume) >= 21 else volume.mean()
+    avg_vol_10 = volume.tail(10).mean()
+
+    if avg_vol_20 > 0:
+        vol_ratio = avg_vol_10 / avg_vol_20
+        if price_range_pct < 10 and vol_ratio > 1.3:
+            # 가격 박스 + 거래량 증가 → 강한 매집
+            score += 40
+        elif price_range_pct < 15 and vol_ratio > 1.1:
+            score += 20
+
+    # ── 3) 기관의 꾸준한 조용한 순매수 ──
+    if not investor_df.empty and len(investor_df) >= 10:
+        recent_10d = investor_df.tail(10)
+        if "기관합계" in recent_10d.columns:
+            inst_positive_days = int((recent_10d["기관합계"] > 0).sum())
+            if inst_positive_days >= 7:
+                score += 30
+            elif inst_positive_days >= 5:
+                score += 15
+            elif inst_positive_days >= 3:
+                score += 5
+            elif inst_positive_days >= 3:
+                score += 10
+
+    return round(min(100.0, max(0.0, score)), 1), False
+
+
+# ---------------------------------------------------------------------------
 # 종합 점수 계산
 # ---------------------------------------------------------------------------
 
@@ -173,22 +259,44 @@ def calc_composite_score(
     """
     멀티팩터 종합 점수 계산 (0~100).
 
+    가중치 (v2 - 선행 신호 강화):
+    - 수급강도       30%  (기존 40% → 단기 3일 집중매수는 이미 늦을 수 있음)
+    - 가격모멘텀     20%  (기존 30% → 이미 오른 모멘텀 비중 축소)
+    - 거래량급증     20%  (기존 30% → 당일 폭발 거래량은 후행)
+    - 선행매집신호   30%  (신규 → 급등 이전 조용한 매집 포착)
+
+    급등 후 페널티:
+    - 3일 수익률 15% 초과 or 5일 수익률 25% 초과 → 총점 0 (추천 제외)
+
     반환:
         total_score (float): 종합 점수
-        details (dict): 세부 점수 + 소외주 반등 여부
+        details (dict): 세부 점수 + 소외주 반등 여부 + 급등 여부
     """
     inst = calc_institutional_score(investor_df, ohlcv)
     momentum = calc_momentum_score(ohlcv)
     volume = calc_volume_surge_score(ohlcv)
-
-    total = round(inst * 0.40 + momentum * 0.30 + volume * 0.30, 1)
+    early, is_surged = calc_early_accumulation_score(ohlcv, investor_df)
     anomaly = is_anomaly_neglected_rebound(ohlcv)
+
+    # 이미 급등한 종목은 추천에서 제외
+    if is_surged:
+        total = 0.0
+    else:
+        total = round(
+            inst * 0.30
+            + momentum * 0.20
+            + volume * 0.20
+            + early * 0.30,
+            1,
+        )
 
     details = {
         "수급강도점수": inst,
         "가격모멘텀점수": momentum,
         "거래량급증점수": volume,
+        "선행매집점수": early,
         "소외주반등": anomaly,
+        "이미급등": is_surged,
         "종합점수": total,
     }
     return total, details
