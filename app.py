@@ -17,8 +17,8 @@ def _normalize_index(df):
     """yfinance DataFrame 인덱스를 timezone-naive DatetimeIndex로 정규화"""
     idx = pd.to_datetime(df.index)
     if idx.tz is not None:
-        idx = idx.tz_convert(None)
-    df.index = idx
+        idx = idx.tz_localize(None)  # tz_convert(None)은 UTC로 변환 후 제거 → 날짜 어긋남 발생
+    df.index = idx.normalize()  # 시간 컴포넌트 제거하여 날짜만 유지
     return df
 
 def _flatten_columns(df):
