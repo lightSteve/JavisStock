@@ -259,44 +259,27 @@ def calc_composite_score(
     """
     멀티팩터 종합 점수 계산 (0~100).
 
-    가중치 (v2 - 선행 신호 강화):
-    - 수급강도       30%  (기존 40% → 단기 3일 집중매수는 이미 늦을 수 있음)
-    - 가격모멘텀     20%  (기존 30% → 이미 오른 모멘텀 비중 축소)
-    - 거래량급증     20%  (기존 30% → 당일 폭발 거래량은 후행)
-    - 선행매집신호   30%  (신규 → 급등 이전 조용한 매집 포착)
-
-    급등 후 페널티:
-    - 3일 수익률 15% 초과 or 5일 수익률 25% 초과 → 총점 0 (추천 제외)
+    가중치:
+    - 수급강도 (기관/외인 동반 순매수)  40%
+    - 가격모멘텀 (VWAP 돌파 + MA이격도) 30%
+    - 거래량급증 (20일 평균 대비)        30%
 
     반환:
         total_score (float): 종합 점수
-        details (dict): 세부 점수 + 소외주 반등 여부 + 급등 여부
+        details (dict): 세부 점수 + 소외주 반등 여부
     """
     inst = calc_institutional_score(investor_df, ohlcv)
     momentum = calc_momentum_score(ohlcv)
     volume = calc_volume_surge_score(ohlcv)
-    early, is_surged = calc_early_accumulation_score(ohlcv, investor_df)
     anomaly = is_anomaly_neglected_rebound(ohlcv)
 
-    # 이미 급등한 종목은 추천에서 제외
-    if is_surged:
-        total = 0.0
-    else:
-        total = round(
-            inst * 0.30
-            + momentum * 0.20
-            + volume * 0.20
-            + early * 0.30,
-            1,
-        )
+    total = round(inst * 0.40 + momentum * 0.30 + volume * 0.30, 1)
 
     details = {
         "수급강도점수": inst,
         "가격모멘텀점수": momentum,
         "거래량급증점수": volume,
-        "선행매집점수": early,
         "소외주반등": anomaly,
-        "이미급등": is_surged,
         "종합점수": total,
     }
     return total, details

@@ -217,6 +217,7 @@ from components.watchlist import render_watchlist_section
 
 from components.rising_stocks import render_rising_stocks
 from components.smart_picks import render_smart_top3
+from components.early_picks import render_early_discovery_top3
 from components.market_regime import render_market_regime
 from components.pair_trading import render_pair_trading
 from components.smart_money import render_smart_money
@@ -952,6 +953,11 @@ if st.session_state.get("load_data"):
                 _r["change"] = _info["change_rate"]
 
         render_smart_top3(_df, _date_str, precomputed=_top3_for_display or None)
+
+        st.markdown("---")
+
+        # ── 초기 발굴 AI TOP 3 ──────────────────────────────────────────
+        render_early_discovery_top3(_df, _date_str)
 
         st.markdown("---")
 
