@@ -235,6 +235,7 @@ from components.trading_journal import render_trading_journal
 from components.strategy_picks import render_strategy_picks
 from components.knee_stocks import render_knee_stocks
 from components.my_portfolio import render_my_portfolio
+from components.volume_surge_picks import render_volume_surge_picks
 from logic_market_regime import calc_market_regime, suggest_position_size, check_market_rest_signal
 
 # ===========================================================================
@@ -1024,6 +1025,11 @@ if st.session_state.get("load_data"):
                     st.session_state["selected_ticker"] = selected_ticker
             else:
                 st.info("기관/외국인 쌍끌이 순매수 종목이 없습니다.")
+
+        st.markdown("---")
+
+        # ── 거래량 급증 발굴 종목 (전일대비 거래량 증가율 Top 30) ──
+        render_volume_surge_picks(_df, _date_str)
 
         st.markdown("---")
 
